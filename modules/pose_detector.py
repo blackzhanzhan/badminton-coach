@@ -36,6 +36,15 @@ class PoseDetector:
         self.RIGHT_HIP, self.RIGHT_KNEE, self.RIGHT_ANKLE = 8, 9, 10
         self.LEFT_HIP, self.LEFT_KNEE, self.LEFT_ANKLE = 11, 12, 13
         
+        # 为分析器模块提供关键点名称到索引的映射
+        self.model_landmarks_info = {
+            "NOSE": self.NOSE, "NECK": self.NECK,
+            "RIGHT_SHOULDER": self.RIGHT_SHOULDER, "RIGHT_ELBOW": self.RIGHT_ELBOW, "RIGHT_WRIST": self.RIGHT_WRIST,
+            "LEFT_SHOULDER": self.LEFT_SHOULDER, "LEFT_ELBOW": self.LEFT_ELBOW, "LEFT_WRIST": self.LEFT_WRIST,
+            "RIGHT_HIP": self.RIGHT_HIP, "RIGHT_KNEE": self.RIGHT_KNEE, "RIGHT_ANKLE": self.RIGHT_ANKLE,
+            "LEFT_HIP": self.LEFT_HIP, "LEFT_KNEE": self.LEFT_KNEE, "LEFT_ANKLE": self.LEFT_ANKLE,
+        }
+        
         # 通用骨架连接
         self.pose_pairs = [
             [self.NECK, self.RIGHT_SHOULDER], [self.RIGHT_SHOULDER, self.RIGHT_ELBOW],
@@ -48,6 +57,13 @@ class PoseDetector:
         ]
 
         self._initialize_model()
+
+    def get_landmarks_info(self):
+        """
+        返回当前模型使用的关键点名称->索引的映射字典。
+        这是一个公共接口，供外部模块（如PoseAnalyzer）调用。
+        """
+        return self.model_landmarks_info
 
     def _initialize_model(self):
         """根据选择的模型类型初始化模型"""
