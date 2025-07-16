@@ -1,4 +1,5 @@
 import math
+import numpy as np
 from enum import Enum
 
 class PoseAnalyzer:
@@ -171,42 +172,69 @@ class PoseAnalyzer:
             self.feedback.append("警告: 无法清晰识别膝盖角度。")
 
         # 身体前倾角度
-        avg_hip_y = (self._get_landmark(landmarks, "LEFT_HIP")[1] + self._get_landmark(landmarks, "RIGHT_HIP")[1]) / 2
-        avg_shoulder_y = (self._get_landmark(landmarks, "LEFT_SHOULDER")[1] + self._get_landmark(landmarks, "RIGHT_SHOULDER")[1]) / 2
-        
-        # 简单地通过y坐标差异判断，之后可以换成更精确的角度计算
-        body_lean = avg_hip_y - avg_shoulder_y 
-        if body_lean > 0.1: # 这个阈值需要调整
-             self.feedback.append("状态: 身体前倾姿势良好。")
+        left_hip = self._get_landmark(landmarks, "LEFT_HIP")
+        right_hip = self._get_landmark(landmarks, "RIGHT_HIP")
+        left_shoulder = self._get_landmark(landmarks, "LEFT_SHOULDER")
+        right_shoulder = self._get_landmark(landmarks, "RIGHT_SHOULDER")
+
+        if all([left_hip, right_hip, left_shoulder, right_shoulder]):
+            avg_hip_y = (left_hip['y'] + right_hip['y']) / 2
+            avg_shoulder_y = (left_shoulder['y'] + right_shoulder['y']) / 2
+            
+            # 简单地通过y坐标差异判断，使用像素距离作为阈值
+            body_lean_diff = avg_hip_y - avg_shoulder_y  # 图像坐标系中y越大越靠下
+            if body_lean_diff > 20: # 阈值可能需要根据实际效果微调
+                 self.feedback.append("状态: 身体前倾姿势良好。")
+            else:
+                 self.feedback.append("提示: 身体不够前倾，请收腹，上半身稍微前倾。")
         else:
-             self.feedback.append("提示: 身体不够前倾，请收腹，上半身稍微前倾。")
+            self.feedback.append("警告: 无法清晰识别肩部或髋部。")
              
     def _get_landmark(self, landmarks, name):
         """通过名称获取关键点坐标"""
         try:
             index = self.landmarks_info[name]
-            return landmarks[index]
-        except (KeyError, IndexError):
-            # print(f"警告: 无法找到名为 '{name}' 的关键点。")
+            # 使用 .get() 避免当landmarks中不存在某个索引时引发KeyError
+            return landmarks.get(index)
+        except KeyError:
+            # 当 landmarks_info 中没有这个名字时
+            # print(f"警告: 无法在landmarks_info中找到名为 '{name}' 的关键点定义。")
             return None
 
     def _calculate_angle(self, p1, p2, p3):
-        """计算由三个点p1, p2, p3组成的角度，p2为顶点"""
+        """
+        计算由三个点p1, p2, p3组成的角度，p2为顶点。
+        点以 {'x': x, 'y': y, 'confidence': c} 的字典形式提供。
+        """
         if not all([p1, p2, p3]):
             return None
         
-        # 可见性检查
-        if p1[2] < 0.5 or p2[2] < 0.5 or p3[2] < 0.5:
+        # 使用置信度进行检查，可以适当降低分析时的阈值
+        if p1['confidence'] < 0.3 or p2['confidence'] < 0.3 or p3['confidence'] < 0.3:
             return None
 
         try:
-            a = math.sqrt((p2[0] - p3[0])**2 + (p2[1] - p3[1])**2)
-            b = math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
-            c = math.sqrt((p1[0] - p3[0])**2 + (p1[1] - p3[1])**2)
+            # 使用 numpy 进行矢量计算，更高效稳定
+            p1_np = np.array([p1['x'], p1['y']])
+            p2_np = np.array([p2['x'], p2['y']])
+            p3_np = np.array([p3['x'], p3['y']])
+
+            v1 = p1_np - p2_np
+            v2 = p3_np - p2_np
+
+            norm_v1 = np.linalg.norm(v1)
+            norm_v2 = np.linalg.norm(v2)
+
+            # 避免除以零
+            if norm_v1 == 0 or norm_v2 == 0:
+                return None
+
+            cosine_angle = np.dot(v1, v2) / (norm_v1 * norm_v2)
             
-            angle_rad = math.acos((a**2 + b**2 - c**2) / (2 * a * b))
-            angle_deg = math.degrees(angle_rad)
+            # 夹逼余弦值到[-1, 1]，防止浮点误差导致 acos 失败
+            angle = np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
             
-            return angle_deg
-        except (ValueError, ZeroDivisionError):
+            return angle
+        except (ValueError, ZeroDivisionError, KeyError):
+             # 增加KeyError以防字典缺少'x', 'y', 'confidence'
             return None 
