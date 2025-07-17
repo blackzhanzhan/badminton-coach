@@ -12,7 +12,7 @@ from modules.badminton_analyzer import BadmintonAnalyzer
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("羽毛球发球动作纠正系统")
+        self.setWindowTitle("羽毛球接球动作纠正系统")
         self.setGeometry(100, 100, 1200, 800)
         
         # 初始化组件
@@ -142,7 +142,7 @@ class MainWindow(QMainWindow):
         frame, landmarks = self.pose_detector.detect_pose(frame)
         
         if landmarks:
-            # 分析发球动作
+            # 分析接球动作
             feedback = self.badminton_analyzer.analyze_serve(landmarks)
             self.feedback_label.setText(feedback)
         

@@ -10,15 +10,15 @@ class PoseAnalyzer:
     class AnalysisMode(Enum):
         """定义分析模式的枚举"""
         STATIC_READY_STANCE = "静态-准备姿势"
-        DYNAMIC_SERVE = "动态-发球分析"
+        DYNAMIC_RECEIVE = "动态-接球分析"
 
     class ActionState(Enum):
         """定义动态动作分析的状态机"""
         IDLE = "空闲"
         PREPARING = "准备中"
-        BACKSWING = "后摆"
+        APPROACH = "接近"
         HITTING = "击球"
-        FOLLOW_THROUGH = "随挥"
+        RECOVERY = "恢复"
         ANALYZING = "分析中"
 
     def __init__(self, landmarks_info, analysis_mode=AnalysisMode.STATIC_READY_STANCE):
@@ -34,7 +34,7 @@ class PoseAnalyzer:
         self.feedback = []
 
         # 仅在动态分析模式下初始化状态机相关变量
-        if self.analysis_mode == self.AnalysisMode.DYNAMIC_SERVE:
+        if self.analysis_mode == self.AnalysisMode.DYNAMIC_RECEIVE:
             self.action_state = self.ActionState.IDLE
             self.keyframes = {}
             print(f"进入 '{self.analysis_mode.value}' 模式, 初始状态: {self.action_state.value}")
@@ -58,19 +58,18 @@ class PoseAnalyzer:
         # 根据不同的分析模式，调用不同的处理逻辑
         if self.analysis_mode == self.AnalysisMode.STATIC_READY_STANCE:
             self._analyze_ready_stance(landmarks)
-        elif self.analysis_mode == self.AnalysisMode.DYNAMIC_SERVE:
-            self._analyze_serve_sequence(landmarks)
+        elif self.analysis_mode == self.AnalysisMode.DYNAMIC_RECEIVE:
+            self._analyze_receive_sequence(landmarks)
         else:
             self.feedback.append(f"错误：未知的分析模式 '{self.analysis_mode}'")
         
         return self.feedback.copy()
 
-    def _analyze_serve_sequence(self, landmarks):
+    def _analyze_receive_sequence(self, landmarks):
         """
-        处理完整的发球动作序列的状态机。
+        处理完整的接球动作序列的状态机。
         """
-        # 在这里，我们将实现状态转换的逻辑
-        # 目前，我们先实现一个简单的状态转换来验证框架
+        # 类似逻辑，调整为接球阶段
         if self.action_state == self.ActionState.IDLE:
             # 假设当用户摆出准备姿势时，就进入PREPARING状态
             # (这里的判断条件可以很复杂，我们先用一个简单的)

@@ -22,35 +22,35 @@ class BadmintonAnalyzer:
         self.LEFT_KNEE = 12
         self.LEFT_ANKLE = 13
         
-        # 发球动作阶段
-        self.serve_stage = 0
+        # 接球动作阶段
+        self.receive_stage = 0
         self.prev_stage = 0
         self.stage_count = 0
         
-        # 发球标准参数（可根据专业教练指导调整）
+        # 接球标准参数
         self.standard_params = {
             'preparation': {
-                'right_elbow_angle': (80, 100),  # 准备阶段右肘角度范围
-                'right_shoulder_angle': (20, 40),  # 准备阶段右肩角度范围
-                'right_knee_angle': (150, 170),  # 准备阶段右膝角度范围
+                'right_elbow_angle': (90, 120),
+                'right_shoulder_angle': (30, 50),
+                'right_knee_angle': (130, 150),
             },
-            'backswing': {
-                'right_elbow_angle': (80, 110),  # 后摆阶段右肘角度范围
-                'right_shoulder_angle': (70, 100),  # 后摆阶段右肩角度范围
+            'approach': {
+                'right_elbow_angle': (100, 130),
+                'right_shoulder_angle': (50, 80),
             },
-            'forward_swing': {
-                'right_elbow_angle': (140, 180),  # 前摆阶段右肘角度范围
-                'right_shoulder_angle': (100, 140),  # 前摆阶段右肩角度范围
+            'hit': {
+                'right_elbow_angle': (150, 180),
+                'right_shoulder_angle': (90, 120),
             },
-            'follow_through': {
-                'right_elbow_angle': (120, 160),  # 随挥阶段右肘角度范围
-                'right_shoulder_angle': (40, 70),  # 随挥阶段右肩角度范围
+            'recovery': {
+                'right_elbow_angle': (90, 120),
+                'right_shoulder_angle': (30, 50),
             }
         }
         
-    def analyze_serve(self, landmarks):
+    def analyze_receive(self, landmarks):
         """
-        分析发球动作
+        分析接球动作
         
         Args:
             landmarks: 姿势关键点数据
@@ -77,8 +77,8 @@ class BadmintonAnalyzer:
         right_knee_angle = self.pose_detector.get_angle(
             landmarks, self.RIGHT_HIP, self.RIGHT_KNEE, self.RIGHT_ANKLE)
         
-        # 检测发球阶段
-        current_stage = self.detect_serve_stage(landmarks, right_elbow_angle, right_shoulder_angle)
+        # 检测接球阶段
+        current_stage = self.detect_receive_stage(landmarks, right_elbow_angle, right_shoulder_angle)
         
         # 如果阶段发生变化，重置计数器
         if current_stage != self.prev_stage:
@@ -88,19 +88,19 @@ class BadmintonAnalyzer:
         
         # 只有当同一阶段连续出现多次时才更新当前阶段（减少抖动）
         if self.stage_count > 5:
-            self.serve_stage = current_stage
+            self.receive_stage = current_stage
         
         self.prev_stage = current_stage
         
         # 根据当前阶段生成反馈
         feedback = self.generate_feedback(
-            self.serve_stage, right_elbow_angle, right_shoulder_angle, right_knee_angle)
+            self.receive_stage, right_elbow_angle, right_shoulder_angle, right_knee_angle)
         
         return feedback
     
-    def detect_serve_stage(self, landmarks, elbow_angle, shoulder_angle):
+    def detect_receive_stage(self, landmarks, elbow_angle, shoulder_angle):
         """
-        检测发球动作的当前阶段
+        检测接球动作的当前阶段
         
         Args:
             landmarks: 姿势关键点数据
@@ -118,19 +118,19 @@ class BadmintonAnalyzer:
         right_shoulder_y = landmarks[self.RIGHT_SHOULDER]['y'] if self.RIGHT_SHOULDER in landmarks else 0
         
         # 准备阶段：肘部弯曲，肩部角度较小
-        if 80 <= elbow_angle <= 100 and 20 <= shoulder_angle <= 40:
+        if 90 <= elbow_angle <= 120 and 30 <= shoulder_angle <= 50:
             return 0
         
         # 后摆阶段：肘部弯曲，肩部角度增大
-        elif 80 <= elbow_angle <= 110 and 70 <= shoulder_angle <= 100:
+        elif 100 <= elbow_angle <= 130 and 50 <= shoulder_angle <= 80:
             return 1
         
         # 前摆阶段：肘部伸直，肩部角度大
-        elif 140 <= elbow_angle <= 180 and 100 <= shoulder_angle <= 140:
+        elif 150 <= elbow_angle <= 180 and 90 <= shoulder_angle <= 120:
             return 2
         
         # 随挥阶段：肘部稍弯，肩部角度减小，手腕位置低于肩部
-        elif 120 <= elbow_angle <= 160 and 40 <= shoulder_angle <= 70 and right_wrist_y > right_shoulder_y:
+        elif 90 <= elbow_angle <= 120 and 30 <= shoulder_angle <= 50 and right_wrist_y > right_shoulder_y:
             return 3
         
         # 默认为准备阶段
@@ -186,8 +186,8 @@ class BadmintonAnalyzer:
                     feedback += "- 右膝弯曲不足，请适当弯曲\n"
                     
         elif stage == 1:  # 后摆阶段
-            std_elbow = self.standard_params['backswing']['right_elbow_angle']
-            std_shoulder = self.standard_params['backswing']['right_shoulder_angle']
+            std_elbow = self.standard_params['approach']['right_elbow_angle']
+            std_shoulder = self.standard_params['approach']['right_shoulder_angle']
             
             feedback += "后摆动作反馈:\n"
             
@@ -204,8 +204,8 @@ class BadmintonAnalyzer:
                     feedback += "- 后摆幅度过大，请控制摆动幅度\n"
                     
         elif stage == 2:  # 前摆阶段
-            std_elbow = self.standard_params['forward_swing']['right_elbow_angle']
-            std_shoulder = self.standard_params['forward_swing']['right_shoulder_angle']
+            std_elbow = self.standard_params['hit']['right_elbow_angle']
+            std_shoulder = self.standard_params['hit']['right_shoulder_angle']
             
             feedback += "前摆动作反馈:\n"
             
@@ -222,8 +222,8 @@ class BadmintonAnalyzer:
                     feedback += "- 前摆幅度过大，可能导致控制不稳\n"
                     
         elif stage == 3:  # 随挥阶段
-            std_elbow = self.standard_params['follow_through']['right_elbow_angle']
-            std_shoulder = self.standard_params['follow_through']['right_shoulder_angle']
+            std_elbow = self.standard_params['recovery']['right_elbow_angle']
+            std_shoulder = self.standard_params['recovery']['right_shoulder_angle']
             
             feedback += "随挥动作反馈:\n"
             

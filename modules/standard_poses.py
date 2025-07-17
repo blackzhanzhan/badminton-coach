@@ -1,76 +1,77 @@
 """
-羽毛球发球标准动作数据
+"""
+羽毛球接球标准动作数据
 包含各个关键阶段的标准姿势参数
 """
 
-# 标准发球动作参数
-STANDARD_SERVE_PARAMS = {
+# 标准接球动作参数
+STANDARD_RECEIVE_PARAMS = {
     'preparation': {
-        'description': '准备阶段：身体略微前倾，持拍手臂弯曲，另一只手拿球',
-        'right_elbow_angle': (80, 100),  # 右肘角度范围
-        'right_shoulder_angle': (20, 40),  # 右肩角度范围
-        'right_knee_angle': (150, 170),  # 右膝角度范围
-        'body_lean_angle': (80, 100),  # 身体前倾角度范围
+        'description': '准备阶段：膝盖弯曲，重心低，拍子在前方',
+        'right_elbow_angle': (90, 120),  # 右肘角度范围
+        'right_shoulder_angle': (30, 50),  # 右肩角度范围
+        'right_knee_angle': (130, 150),  # 右膝角度范围
+        'body_lean_angle': (70, 90),  # 身体前倾角度范围
     },
-    'backswing': {
-        'description': '后摆阶段：拍头向后摆动，肘部保持弯曲，肩部角度增大',
-        'right_elbow_angle': (80, 110),  # 右肘角度范围
-        'right_shoulder_angle': (70, 100),  # 右肩角度范围
-        'right_knee_angle': (150, 170),  # 右膝角度范围
-        'body_rotation': (10, 30),  # 身体旋转角度范围
+    'approach': {
+        'description': '接近阶段：快速移动到球的位置，保持平衡',
+        'right_elbow_angle': (100, 130),  # 右肘角度范围
+        'right_shoulder_angle': (50, 80),  # 右肩角度范围
+        'right_knee_angle': (140, 160),  # 右膝角度范围
+        'body_rotation': (0, 20),  # 身体旋转角度范围
     },
-    'forward_swing': {
-        'description': '前摆阶段：拍头快速向前摆动，手臂伸直，击打羽毛球',
-        'right_elbow_angle': (140, 180),  # 右肘角度范围
-        'right_shoulder_angle': (100, 140),  # 右肩角度范围
-        'right_knee_angle': (150, 170),  # 右膝角度范围
+    'hit': {
+        'description': '击球阶段：挥拍击球，手臂伸展',
+        'right_elbow_angle': (150, 180),  # 右肘角度范围
+        'right_shoulder_angle': (90, 120),  # 右肩角度范围
+        'right_knee_angle': (140, 160),  # 右膝角度范围
         'wrist_angle': (160, 180),  # 手腕角度范围
     },
-    'follow_through': {
-        'description': '随挥阶段：击球后继续完成动作，手臂向前下方挥动',
-        'right_elbow_angle': (120, 160),  # 右肘角度范围
-        'right_shoulder_angle': (40, 70),  # 右肩角度范围
-        'right_knee_angle': (150, 170),  # 右膝角度范围
-        'body_rotation': (0, 20),  # 身体旋转角度范围
+    'recovery': {
+        'description': '恢复阶段：快速回到准备姿势',
+        'right_elbow_angle': (90, 120),  # 右肘角度范围
+        'right_shoulder_angle': (30, 50),  # 右肩角度范围
+        'right_knee_angle': (130, 150),  # 右膝角度范围
+        'body_rotation': (0, 10),  # 身体旋转角度范围
     }
 }
 
 # 各阶段的关键检查点
-SERVE_CHECKPOINTS = {
+RECEIVE_CHECKPOINTS = {
     'preparation': [
-        '右手握拍姿势正确',
-        '身体重心稍微前倾',
-        '右肘适当弯曲',
-        '左手持球在身体前方',
-        '两脚分开与肩同宽',
+        '握拍正确，重心降低',
+        '膝盖适当弯曲',
+        '拍子置于前方',
+        '双眼注视来球',
+        '身体平衡',
     ],
-    'backswing': [
-        '拍头向后摆动到位',
-        '右肘保持弯曲',
-        '身体重心向后移动',
-        '左手抛球稳定',
-        '目光跟随球移动',
+    'approach': [
+        '脚步移动迅速',
+        '保持低重心',
+        '手臂准备挥拍',
+        '目光锁定球',
+        '平衡不失',
     ],
-    'forward_swing': [
-        '右臂向前摆动流畅',
-        '击球点在适当高度',
-        '手腕发力恰当',
-        '身体重心前移',
-        '击球时机准确',
+    'hit': [
+        '挥拍时机准确',
+        '击球点合适',
+        '发力均匀',
+        '身体协调',
+        '眼神跟随',
     ],
-    'follow_through': [
-        '击球后动作完整',
-        '手臂自然向前下方随挥',
-        '身体恢复平衡',
-        '目光跟随球飞行方向',
-        '准备下一步移动',
+    'recovery': [
+        '快速回位',
+        '恢复准备姿势',
+        '保持警惕',
+        '呼吸平稳',
+        '准备下一球',
     ]
 }
 
-def get_standard_serve_params():
-    """获取标准发球动作参数"""
-    return STANDARD_SERVE_PARAMS
+def get_standard_receive_params():
+    """获取标准接球动作参数"""
+    return STANDARD_RECEIVE_PARAMS
 
-def get_serve_checkpoints():
-    """获取发球动作检查点"""
-    return SERVE_CHECKPOINTS 
+def get_receive_checkpoints():
+    """获取接球动作检查点"""
+    return RECEIVE_CHECKPOINTS 
