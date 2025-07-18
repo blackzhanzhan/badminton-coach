@@ -1,6 +1,12 @@
 import math
 import numpy as np
 from enum import Enum
+from modules.standard_poses import STANDARD_RECEIVE_PARAMS
+import json
+import math
+import numpy as np
+from fastdtw import fastdtw
+from scipy.spatial.distance import euclidean
 
 class PoseAnalyzer:
     """
@@ -37,6 +43,9 @@ class PoseAnalyzer:
         if self.analysis_mode == self.AnalysisMode.DYNAMIC_RECEIVE:
             self.action_state = self.ActionState.IDLE
             self.keyframes = {}
+            self.prev_landmarks = None  # 存储上一帧 landmarks
+            self.state_counter = 0  # 状态计数器
+            self.min_frames_to_confirm = 3  # 最小确认帧数
             print(f"进入 '{self.analysis_mode.value}' 模式, 初始状态: {self.action_state.value}")
 
     def analyze_pose(self, landmarks):
@@ -65,34 +74,80 @@ class PoseAnalyzer:
         
         return self.feedback.copy()
 
+    def analyze_json_difference(self, standard_json_path, learner_json_path, api_key=None):
+        """比较JSON并用大模型生成建议（带DTW对齐）"""
+        try:
+            with open(standard_json_path, 'r') as f:
+                standard_data = json.load(f)
+            with open(learner_json_path, 'r') as f:
+                learner_data = json.load(f)
+        except Exception as e:
+            return [f"加载JSON失败: {e}"]
+
+        if not standard_data or not learner_data:
+            return ["JSON数据为空，无法比较。"]
+
+        # 提取特征序列（示例：右肘角度 + 右肩角度，作为多维序列）
+        def extract_angle_sequence(data):
+            sequence = []
+            for frame in data:
+                landmarks = frame.get('landmarks', {})
+                elbow_angle = self._calculate_angle(
+                    self._get_landmark(landmarks, "RIGHT_SHOULDER"),
+                    self._get_landmark(landmarks, "RIGHT_ELBOW"),
+                    self._get_landmark(landmarks, "RIGHT_WRIST")
+                ) or 0
+                shoulder_angle = self._calculate_angle(
+                    self._get_landmark(landmarks, "RIGHT_HIP"),
+                    self._get_landmark(landmarks, "RIGHT_SHOULDER"),
+                    self._get_landmark(landmarks, "RIGHT_ELBOW")
+                ) or 0
+                sequence.append([elbow_angle, shoulder_angle])  # 多维特征
+            return np.array(sequence)
+
+        std_seq = extract_angle_sequence(standard_data)
+        learn_seq = extract_angle_sequence(learner_data)
+
+        if len(std_seq) == 0 or len(learn_seq) == 0:
+            return ["无法提取有效角度序列。"]
+
+        # 应用DTW计算对齐距离和路径
+        distance, path = fastdtw(std_seq, learn_seq, dist=euclidean)
+
+        # 计算对齐后的平均偏差
+        aligned_diffs = []
+        for i, j in path:
+            diff = np.linalg.norm(std_seq[i] - learn_seq[j])  # 欧氏距离
+            aligned_diffs.append(diff)
+        avg_aligned_diff = np.mean(aligned_diffs) if aligned_diffs else 0
+
+        # 节奏差异：路径长度 vs. 序列长度
+        duration_ratio = len(learn_seq) / len(std_seq) if len(std_seq) > 0 else 1
+        rhythm_suggestion = f"动作节奏{'慢' if duration_ratio > 1.2 else '快'}了 {abs(duration_ratio - 1) * 100:.1f}%"
+
+        # 用大模型生成建议
+        prompt = f"作为羽毛球教练，基于以下接球动作差异给出纠正建议：平均对齐偏差 {avg_aligned_diff:.1f}°，{rhythm_suggestion}。重点关注挥拍和恢复阶段。"
+        suggestions = ["默认建议: 动作相似，但节奏稍慢，建议加速准备阶段。"]
+
+        if api_key:  # Groq API示例
+            try:
+                from groq import Groq
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="mixtral-8x7b-32768",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7
+                )
+                suggestions = [response.choices[0].message.content]
+            except Exception as e:
+                suggestions.append(f"API调用失败: {e}")
+
+        return suggestions
+
     def _analyze_receive_sequence(self, landmarks):
-        """
-        处理完整的接球动作序列的状态机。
-        """
-        # 类似逻辑，调整为接球阶段
-        if self.action_state == self.ActionState.IDLE:
-            # 假设当用户摆出准备姿势时，就进入PREPARING状态
-            # (这里的判断条件可以很复杂，我们先用一个简单的)
-            is_ready = self._is_in_ready_stance(landmarks)
-            if is_ready:
-                self.action_state = self.ActionState.PREPARING
-                # 记录进入准备状态的关键帧数据
-                self.keyframes['preparation'] = self._capture_keyframe_data(landmarks)
-                print(f"状态转换: {self.ActionState.IDLE.value} -> {self.ActionState.PREPARING.value}")
-                print(f"已捕获 'preparation' 关键帧数据: {self.keyframes['preparation']}")
-        
-        elif self.action_state == self.ActionState.PREPARING:
-            # 在这里添加从 PREPARING 到 BACKSWING 的逻辑
-            # 例如：检测到手臂开始向后摆动
-            pass
-
-        # ... 后续将实现其他状态的转换逻辑 ...
-
-        # 在界面上显示当前状态，用于调试
-        self.feedback.append(f"当前动作状态: {self.action_state.value}")
-        if self.keyframes:
-            self.feedback.append("已捕获的关键帧: " + ", ".join(self.keyframes.keys()))
-
+        # 原状态机逻辑已注释掉，转向离线JSON分析
+        self.feedback.append("动态模式：使用离线JSON比较进行分析。")
+        return
 
     def _is_in_ready_stance(self, landmarks):
         """
@@ -122,17 +177,43 @@ class PoseAnalyzer:
         """
         # 在真实场景中，这里会计算所有需要的角度
         # 现在我们只返回一个示例数据
+        left_hip = self._get_landmark(landmarks, "LEFT_HIP")
+        right_hip = self._get_landmark(landmarks, "RIGHT_HIP")
+        left_shoulder = self._get_landmark(landmarks, "LEFT_SHOULDER")
+        right_shoulder = self._get_landmark(landmarks, "RIGHT_SHOULDER")
+        body_lean_angle = None
+        if all([left_hip, right_hip, left_shoulder, right_shoulder]):
+            if left_hip is not None and right_hip is not None and left_shoulder is not None and right_shoulder is not None:
+                avg_hip = ((left_hip['x'] + right_hip['x']) / 2, (left_hip['y'] + right_hip['y']) / 2)
+                avg_shoulder = ((left_shoulder['x'] + right_shoulder['x']) / 2, (left_shoulder['y'] + right_shoulder['y']) / 2)
+                # 计算肩部到髋部的向量与垂直线的角度
+                delta_x = avg_hip[0] - avg_shoulder[0]
+                delta_y = avg_hip[1] - avg_shoulder[1]
+                body_lean_angle = math.degrees(math.atan2(delta_x, delta_y))
+                if body_lean_angle < 0:
+                    body_lean_angle += 180  # 调整为正值
         return {
             'left_knee_angle': self._calculate_angle(
                 self._get_landmark(landmarks, "LEFT_HIP"),
                 self._get_landmark(landmarks, "LEFT_KNEE"),
                 self._get_landmark(landmarks, "LEFT_ANKLE")
             ),
+            'right_knee_angle': self._calculate_angle(
+                self._get_landmark(landmarks, "RIGHT_HIP"),
+                self._get_landmark(landmarks, "RIGHT_KNEE"),
+                self._get_landmark(landmarks, "RIGHT_ANKLE")
+            ),
             'right_elbow_angle': self._calculate_angle(
                 self._get_landmark(landmarks, "RIGHT_SHOULDER"),
                 self._get_landmark(landmarks, "RIGHT_ELBOW"),
                 self._get_landmark(landmarks, "RIGHT_WRIST")
-            )
+            ),
+            'right_shoulder_angle': self._calculate_angle(
+                self._get_landmark(landmarks, "RIGHT_HIP"),
+                self._get_landmark(landmarks, "RIGHT_SHOULDER"),
+                self._get_landmark(landmarks, "RIGHT_ELBOW")
+            ),
+            'body_lean_angle': body_lean_angle
         }
 
     def _analyze_ready_stance(self, landmarks):
