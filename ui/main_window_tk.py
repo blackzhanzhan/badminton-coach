@@ -8,7 +8,6 @@ import json
 import numpy as np
 from modules.pose_detector import PoseDetector
 from modules.pose_analyzer import PoseAnalyzer
-from modules.badminton_analyzer import BadmintonAnalyzer
 
 class MainWindow:
     def __init__(self, root):
@@ -41,6 +40,9 @@ class MainWindow:
         self.processed_frames = 0
         self.total_frames = 0
         self.fps = 30  # 默认 FPS
+        
+        # 新增变量用于保存最近分析的JSON文件路径
+        self.last_json_path = None
         
     def init_ui(self):
         """初始化用户界面"""
@@ -84,19 +86,6 @@ class MainWindow:
         # 分隔符
         ttk.Separator(self.bottom_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill='y', padx=10)
 
-        # 分析模式选择
-        analysis_mode_label = ttk.Label(self.bottom_frame, text="分析模式:")
-        analysis_mode_label.pack(side=tk.LEFT, padx=5)
-
-        self.analysis_mode_var = tk.StringVar(value=PoseAnalyzer.AnalysisMode.STATIC_READY_STANCE.value)
-        analysis_modes = ["静态-准备姿势", "动态-接球分析"]
-        self.analysis_mode_combo = ttk.Combobox(self.bottom_frame, textvariable=self.analysis_mode_var, 
-                                           values=analysis_modes, width=15, state="readonly")
-        self.analysis_mode_combo.pack(side=tk.LEFT, padx=5)
-
-        # 分隔符
-        ttk.Separator(self.bottom_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill='y', padx=10)
-
         # 输入源选择
         source_label = ttk.Label(self.bottom_frame, text="输入源:")
         source_label.pack(side=tk.LEFT, padx=5)
@@ -122,6 +111,13 @@ class MainWindow:
                                      variable=self.debug_var, 
                                      command=self.toggle_debug)
         self.debug_check.pack(side=tk.LEFT, padx=5)
+
+        self.api_key_label = ttk.Label(self.bottom_frame, text="Groq API密钥:")
+        self.api_key_label.pack(side=tk.LEFT, padx=5)
+        self.api_key_entry = ttk.Entry(self.bottom_frame, width=30)
+        self.api_key_entry.pack(side=tk.LEFT, padx=5)
+        self.generate_button = ttk.Button(self.bottom_frame, text="生成阶段JSON", command=self.generate_staged_json)
+        self.generate_button.pack(side=tk.LEFT, padx=5)
         
     def disable_controls(self):
         """禁用除停止按钮外的所有控制控件"""
@@ -176,13 +172,8 @@ class MainWindow:
 
         try:
             self.pose_detector = PoseDetector(device=selected_device)
-            # 根据UI选择的模式来初始化分析器
-            selected_mode_str = self.analysis_mode_var.get()
-            selected_mode = next((mode for mode in PoseAnalyzer.AnalysisMode if mode.value == selected_mode_str), 
-                                 PoseAnalyzer.AnalysisMode.STATIC_READY_STANCE)
-            
-            # 使用选择的模式和检测器提供的关键点信息来初始化分析器
-            self.pose_analyzer = PoseAnalyzer(self.pose_detector.get_landmarks_info(), analysis_mode=selected_mode)
+            # 初始化pose_analyzer时不使用mode：self.pose_analyzer = PoseAnalyzer(self.pose_detector.get_landmarks_info())
+            self.pose_analyzer = PoseAnalyzer(self.pose_detector.get_landmarks_info())
 
         except Exception as e:
             self.update_feedback_box(f"创建检测器或分析器时发生未知错误: {e}")
@@ -254,6 +245,7 @@ class MainWindow:
             with open(report_filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.all_landmarks_timeline, f, ensure_ascii=False, indent=4)
             self.update_feedback_box(f"姿态数据已保存至: {report_filepath}")
+            self.last_json_path = report_filepath # 更新最近JSON路径
         except Exception as e:
             self.update_feedback_box(f"保存分析数据时出错: {e}")
 
@@ -278,7 +270,7 @@ class MainWindow:
             return
 
         self.processed_frames += 1
-        timestamp_ms = int(self.cap.get(cv2.CAP_PROP_POS_MSEC))
+        timestamp_ms = int(self.processed_frames * (1000 / self.fps))
 
         if self.pose_detector is None or self.pose_analyzer is None:
             self.update_feedback_box("检测器或分析器未初始化")
@@ -311,3 +303,18 @@ class MainWindow:
         # 定时更新，基于 FPS
         delay = int(1000 / self.fps)
         self.root.after(delay, self.update_frame) 
+
+    def generate_staged_json(self):
+        api_key = self.api_key_entry.get()
+        if not api_key:
+            messagebox.showwarning("警告", "请提供API密钥")
+            return
+        if not self.last_json_path:
+            messagebox.showwarning("警告", "请先分析视频生成初始JSON")
+            return
+        template_path = "staged_templates/standard_comparison_template.json"
+        staged_data = self.pose_analyzer.segment_actions_with_llm(self.last_json_path, template_path=template_path, api_key=api_key)
+        output_path = os.path.splitext(self.last_json_path)[0] + "_staged.json"
+        with open(output_path, 'w') as f:
+            json.dump(staged_data, f, indent=4)
+        messagebox.showinfo("成功", f"阶段JSON已生成: {output_path}") 
