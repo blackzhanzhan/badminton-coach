@@ -73,9 +73,9 @@ class PoseAnalyzer:
     def analyze_json_difference(self, standard_json_path, learner_json_path):
         """比较JSON并用大模型生成建议（带DTW对齐）"""
         try:
-            with open(standard_json_path, 'r') as f:
+            with open(standard_json_path, 'r', encoding='utf-8') as f:
                 standard_data = json.load(f)
-            with open(learner_json_path, 'r') as f:
+            with open(learner_json_path, 'r', encoding='utf-8') as f:
                 learner_data = json.load(f)
         except Exception as e:
             return [f"加载JSON失败: {e}"]
@@ -160,9 +160,9 @@ class PoseAnalyzer:
 
     def segment_actions_with_llm(self, json_path, template_path, num_stages=5):
         try:
-            with open(json_path, 'r') as f:
+            with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            with open(template_path, 'r') as f:
+            with open(template_path, 'r', encoding='utf-8') as f:
                 template_data = json.load(f)
         except Exception as e:
             return f"加载JSON失败: {str(e)}"

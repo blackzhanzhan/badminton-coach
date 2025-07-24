@@ -7,6 +7,7 @@ import os
 import json
 import numpy as np
 import sys
+from datetime import datetime
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,6 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.pose_detector import PoseDetector
 from modules.pose_analyzer import PoseAnalyzer
 from modules.json_converter import JsonConverter
+from ui.report_window_tk import ReportWindowTk
 
 class MainWindow:
     def __init__(self, root):
@@ -49,6 +51,9 @@ class MainWindow:
         
         # 新增变量用于保存最近分析的JSON文件路径
         self.last_json_path = None
+        
+        # 报告窗口
+        self.report_window = None
         
     def init_ui(self):
         """初始化用户界面"""
@@ -142,6 +147,11 @@ class MainWindow:
         
         self.start_button = ttk.Button(button_frame, text="⏸️ 停止处理", command=self.stop_detection, state="disabled")
         self.start_button.pack(side=tk.LEFT, padx=5)
+        
+        # 分析报告按钮
+        self.report_button = ttk.Button(button_frame, text="📊 分析报告", 
+                                      command=self.open_analysis_report)
+        self.report_button.pack(side=tk.LEFT, padx=5)
         
         # 调试模式
         self.debug_var = tk.BooleanVar(value=False)
@@ -244,7 +254,7 @@ class MainWindow:
         self.root.after(0, lambda: self.update_feedback_box(f"正在使用 {selected_device.upper()} 初始化模型..."))
         
         self.pose_detector = PoseDetector(device=selected_device)
-        self.pose_analyzer = PoseAnalyzer(self.pose_detector.get_landmarks_info())
+        self.pose_analyzer = PoseAnalyzer()
         
         if self.pose_detector.initialization_error:
             raise Exception(self.pose_detector.initialization_error)
@@ -337,6 +347,393 @@ class MainWindow:
             if 'VOLCENGINE_API_KEY' in os.environ:
                 del os.environ['VOLCENGINE_API_KEY']
     
+    def _auto_analyze_with_ai(self):
+        """自动进行AI智能分析"""
+        try:
+            # 设置API密钥
+            api_key = self.api_key_entry.get().strip()
+            if not api_key:
+                self.update_feedback_box("❌ 请先设置API密钥")
+                return
+            
+            os.environ['VOLCENGINE_API_KEY'] = api_key
+            
+            # 查找标准模板文件
+            template_path = "staged_templates/击球动作模板.json"
+            if not os.path.exists(template_path):
+                self.update_feedback_box("❌ 未找到标准模板文件")
+                return
+            
+            # 使用生成的分析数据
+            if not self.last_json_path or not os.path.exists(self.last_json_path):
+                self.update_feedback_box("❌ 未找到用户分析数据")
+                return
+            
+            self.update_feedback_box(f"📊 正在对比分析: {os.path.basename(self.last_json_path)}")
+            
+            # 执行智能分析
+            suggestions = self.pose_analyzer.analyze_json_difference(
+                template_path, self.last_json_path
+            )
+            
+            # 显示分析结果
+            self.update_feedback_box("\n🎯 智能分析结果:")
+            self.update_feedback_box("=" * 50)
+            
+            for i, suggestion in enumerate(suggestions, 1):
+                self.update_feedback_box(f"{i}. {suggestion}")
+                self.update_feedback_box("-" * 30)
+            
+            # 保存分析报告
+            self._save_analysis_report(suggestions)
+            
+            # 显示分析报告窗口
+            self._show_analysis_report_window(suggestions)
+            
+            self.update_feedback_box("\n✅ 智能分析完成！")
+            
+        except Exception as e:
+            error_msg = f"智能分析失败: {str(e)}"
+            self.update_feedback_box(f"❌ {error_msg}")
+        
+        finally:
+            if 'VOLCENGINE_API_KEY' in os.environ:
+                del os.environ['VOLCENGINE_API_KEY']
+    
+    def _save_analysis_report(self, suggestions):
+        """保存分析报告"""
+        try:
+            output_dir = "output"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            video_filename = os.path.basename(self.video_path)
+            report_filename = f"{video_filename}.analysis_report.txt"
+            report_filepath = os.path.join(output_dir, report_filename)
+            
+            with open(report_filepath, 'w', encoding='utf-8') as f:
+                f.write("羽毛球动作智能分析报告\n")
+                f.write("=" * 50 + "\n")
+                f.write(f"视频文件: {video_filename}\n")
+                f.write(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                
+                f.write("分析建议:\n")
+                f.write("-" * 30 + "\n")
+                for i, suggestion in enumerate(suggestions, 1):
+                    f.write(f"{i}. {suggestion}\n\n")
+            
+            self.update_feedback_box(f"💾 分析报告已保存: {report_filename}")
+            
+        except Exception as e:
+            self.update_feedback_box(f"❌ 保存报告失败: {str(e)}")
+    
+    def _show_analysis_report_window(self, suggestions):
+        """显示分析报告窗口"""
+        # 创建新窗口
+        report_window = tk.Toplevel(self.root)
+        report_window.title("🏸 羽毛球动作智能分析报告")
+        report_window.geometry("900x700")
+        report_window.resizable(True, True)
+        report_window.configure(bg='#f0f0f0')
+        
+        # 设置窗口图标（如果有的话）
+        try:
+            report_window.iconbitmap(default="icon.ico")
+        except:
+            pass
+        
+        # 创建样式
+        style = ttk.Style()
+        style.configure('Title.TLabel', font=('Microsoft YaHei', 18, 'bold'), foreground='#2c3e50')
+        style.configure('Info.TLabel', font=('Microsoft YaHei', 10), foreground='#34495e')
+        style.configure('Header.TLabelframe.Label', font=('Microsoft YaHei', 12, 'bold'), foreground='#2980b9')
+        style.configure('Custom.TButton', font=('Microsoft YaHei', 10))
+        
+        # 主框架 - 添加渐变背景效果
+        main_frame = tk.Frame(report_window, bg='#ffffff', relief=tk.RAISED, bd=1)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        # 顶部装饰条
+        top_bar = tk.Frame(main_frame, bg='#3498db', height=5)
+        top_bar.pack(fill=tk.X, pady=(0, 20))
+        
+        # 标题区域
+        title_frame = tk.Frame(main_frame, bg='#ffffff')
+        title_frame.pack(fill=tk.X, pady=(0, 25))
+        
+        title_label = tk.Label(title_frame, text="🏸 羽毛球动作智能分析报告", 
+                              font=('Microsoft YaHei', 20, 'bold'), 
+                              fg='#2c3e50', bg='#ffffff')
+        title_label.pack()
+        
+        subtitle_label = tk.Label(title_frame, text="AI Powered Badminton Motion Analysis", 
+                                 font=('Arial', 10, 'italic'), 
+                                 fg='#7f8c8d', bg='#ffffff')
+        subtitle_label.pack(pady=(5, 0))
+        
+        # 信息卡片
+        info_card = tk.Frame(main_frame, bg='#ecf0f1', relief=tk.RAISED, bd=1)
+        info_card.pack(fill=tk.X, pady=(0, 20), padx=20)
+        
+        info_inner = tk.Frame(info_card, bg='#ecf0f1')
+        info_inner.pack(fill=tk.X, padx=20, pady=15)
+        
+        video_filename = os.path.basename(self.video_path)
+        analysis_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 视频文件信息
+        file_frame = tk.Frame(info_inner, bg='#ecf0f1')
+        file_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        tk.Label(file_frame, text="📹 视频文件:", font=('Microsoft YaHei', 11, 'bold'), 
+                fg='#2980b9', bg='#ecf0f1').pack(side=tk.LEFT)
+        tk.Label(file_frame, text=video_filename, font=('Microsoft YaHei', 11), 
+                fg='#2c3e50', bg='#ecf0f1').pack(side=tk.LEFT, padx=(10, 0))
+        
+        # 分析时间信息
+        time_frame = tk.Frame(info_inner, bg='#ecf0f1')
+        time_frame.pack(fill=tk.X)
+        
+        tk.Label(time_frame, text="⏰ 分析时间:", font=('Microsoft YaHei', 11, 'bold'), 
+                fg='#2980b9', bg='#ecf0f1').pack(side=tk.LEFT)
+        tk.Label(time_frame, text=analysis_time, font=('Microsoft YaHei', 11), 
+                fg='#2c3e50', bg='#ecf0f1').pack(side=tk.LEFT, padx=(10, 0))
+        
+        # 分析建议区域
+        suggestions_frame = tk.LabelFrame(main_frame, text="💡 智能分析建议", 
+                                         font=('Microsoft YaHei', 14, 'bold'),
+                                         fg='#2980b9', bg='#ffffff', 
+                                         relief=tk.RAISED, bd=2)
+        suggestions_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 20), padx=20)
+        
+        # 创建文本框容器
+        text_container = tk.Frame(suggestions_frame, bg='#ffffff')
+        text_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        # 文本框
+        suggestions_text = tk.Text(text_container, wrap=tk.WORD, 
+                                  font=('Microsoft YaHei', 12), 
+                                  state=tk.NORMAL, 
+                                  bg='#fafafa', 
+                                  fg='#2c3e50',
+                                  relief=tk.FLAT,
+                                  selectbackground='#3498db',
+                                  selectforeground='white',
+                                  insertbackground='#2c3e50',
+                                  padx=15, pady=15,
+                                  spacing1=5, spacing2=3, spacing3=5)
+        
+        # 滚动条
+        scrollbar = ttk.Scrollbar(text_container, orient=tk.VERTICAL, command=suggestions_text.yview)
+        suggestions_text.configure(yscrollcommand=scrollbar.set)
+        
+        # 布局
+        suggestions_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 插入分析建议内容 - 支持Markdown渲染
+        suggestions_text.delete(1.0, tk.END)
+        
+        # 配置文本标签样式
+        suggestions_text.tag_configure("h1", font=('Microsoft YaHei', 16, 'bold'), foreground='#2c3e50')
+        suggestions_text.tag_configure("h2", font=('Microsoft YaHei', 14, 'bold'), foreground='#2980b9')
+        suggestions_text.tag_configure("h3", font=('Microsoft YaHei', 13, 'bold'), foreground='#34495e')
+        suggestions_text.tag_configure("bold", font=('Microsoft YaHei', 11, 'bold'), foreground='#2c3e50')
+        suggestions_text.tag_configure("italic", font=('Microsoft YaHei', 11, 'italic'), foreground='#2c3e50')
+        suggestions_text.tag_configure("number", font=('Microsoft YaHei', 12, 'bold'), foreground='#e74c3c')
+        suggestions_text.tag_configure("content", font=('Microsoft YaHei', 11), foreground='#2c3e50')
+        suggestions_text.tag_configure("separator", font=('Microsoft YaHei', 8), foreground='#bdc3c7')
+        suggestions_text.tag_configure("code", font=('Consolas', 10), background='#f8f9fa', foreground='#e74c3c')
+        suggestions_text.tag_configure("list_item", font=('Microsoft YaHei', 11), foreground='#2c3e50', lmargin1=20, lmargin2=20)
+        
+        for i, suggestion in enumerate(suggestions, 1):
+            # 添加序号
+            suggestions_text.insert(tk.END, f"【建议 {i}】", "number")
+            suggestions_text.insert(tk.END, "\n")
+            
+            # 解析并渲染Markdown内容
+            self._render_markdown_content(suggestions_text, suggestion)
+            suggestions_text.insert(tk.END, "\n\n", "separator")
+            
+            # 添加分隔线（除了最后一个）
+            if i < len(suggestions):
+                suggestions_text.insert(tk.END, "─" * 50 + "\n\n", "separator")
+        
+        suggestions_text.config(state=tk.DISABLED)
+        
+        # 按钮区域 - 美化按钮
+        button_frame = tk.Frame(main_frame, bg='#ffffff')
+        button_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
+        # 左侧按钮组
+        left_buttons = tk.Frame(button_frame, bg='#ffffff')
+        left_buttons.pack(side=tk.LEFT)
+        
+        # 导出按钮
+        export_btn = tk.Button(left_buttons, text="📄 导出报告", 
+                              font=('Microsoft YaHei', 10, 'bold'),
+                              bg='#27ae60', fg='white',
+                              relief=tk.FLAT, padx=20, pady=8,
+                              cursor='hand2',
+                              command=lambda: self._export_current_report(suggestions))
+        export_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # 复制按钮
+        copy_btn = tk.Button(left_buttons, text="📋 复制内容", 
+                            font=('Microsoft YaHei', 10),
+                            bg='#3498db', fg='white',
+                            relief=tk.FLAT, padx=20, pady=8,
+                            cursor='hand2',
+                            command=lambda: self._copy_report_content(suggestions))
+        copy_btn.pack(side=tk.LEFT)
+        
+        # 右侧按钮组
+        right_buttons = tk.Frame(button_frame, bg='#ffffff')
+        right_buttons.pack(side=tk.RIGHT)
+        
+        # 关闭按钮
+        close_btn = tk.Button(right_buttons, text="✖ 关闭", 
+                             font=('Microsoft YaHei', 10),
+                             bg='#e74c3c', fg='white',
+                             relief=tk.FLAT, padx=20, pady=8,
+                             cursor='hand2',
+                             command=report_window.destroy)
+        close_btn.pack(side=tk.RIGHT)
+        
+        # 按钮悬停效果
+        def on_enter(event, btn, color):
+            btn.configure(bg=color)
+        
+        def on_leave(event, btn, color):
+            btn.configure(bg=color)
+        
+        export_btn.bind("<Enter>", lambda e: on_enter(e, export_btn, '#229954'))
+        export_btn.bind("<Leave>", lambda e: on_leave(e, export_btn, '#27ae60'))
+        
+        copy_btn.bind("<Enter>", lambda e: on_enter(e, copy_btn, '#2980b9'))
+        copy_btn.bind("<Leave>", lambda e: on_leave(e, copy_btn, '#3498db'))
+        
+        close_btn.bind("<Enter>", lambda e: on_enter(e, close_btn, '#c0392b'))
+        close_btn.bind("<Leave>", lambda e: on_leave(e, close_btn, '#e74c3c'))
+        
+        # 窗口设置
+        report_window.transient(self.root)
+        report_window.grab_set()
+        
+        # 计算居中位置
+        report_window.update_idletasks()
+        x = (report_window.winfo_screenwidth() // 2) - (900 // 2)
+        y = (report_window.winfo_screenheight() // 2) - (700 // 2)
+        report_window.geometry(f"900x700+{x}+{y}")
+        
+        # 添加淡入效果
+        report_window.attributes('-alpha', 0.0)
+        report_window.after(10, lambda: self._fade_in_window(report_window))
+    
+    def _fade_in_window(self, window, alpha=0.0):
+        """窗口淡入效果"""
+        alpha += 0.1
+        if alpha <= 1.0:
+            window.attributes('-alpha', alpha)
+            window.after(30, lambda: self._fade_in_window(window, alpha))
+        else:
+            window.attributes('-alpha', 1.0)
+    
+    def _render_markdown_content(self, text_widget, content):
+        """渲染Markdown内容到Text组件"""
+        import re
+        
+        lines = content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                text_widget.insert(tk.END, "\n")
+                continue
+            
+            # 处理标题
+            if line.startswith('### '):
+                text_widget.insert(tk.END, line[4:] + "\n", "h3")
+            elif line.startswith('## '):
+                text_widget.insert(tk.END, line[3:] + "\n", "h2")
+            elif line.startswith('# '):
+                text_widget.insert(tk.END, line[2:] + "\n", "h1")
+            # 处理列表项
+            elif line.startswith('- ') or line.startswith('* '):
+                text_widget.insert(tk.END, "• " + line[2:] + "\n", "list_item")
+            elif re.match(r'^\d+\. ', line):
+                text_widget.insert(tk.END, line + "\n", "list_item")
+            else:
+                # 处理行内格式
+                self._render_inline_formatting(text_widget, line)
+                text_widget.insert(tk.END, "\n")
+    
+    def _render_inline_formatting(self, text_widget, line):
+        """渲染行内格式（粗体、斜体、代码等）"""
+        import re
+        
+        # 处理粗体 **text**
+        parts = re.split(r'(\*\*.*?\*\*)', line)
+        for part in parts:
+            if part.startswith('**') and part.endswith('**') and len(part) > 4:
+                text_widget.insert(tk.END, part[2:-2], "bold")
+            elif part.startswith('*') and part.endswith('*') and len(part) > 2 and not part.startswith('**'):
+                text_widget.insert(tk.END, part[1:-1], "italic")
+            else:
+                # 处理代码 `code`
+                code_parts = re.split(r'(`.*?`)', part)
+                for code_part in code_parts:
+                    if code_part.startswith('`') and code_part.endswith('`') and len(code_part) > 2:
+                        text_widget.insert(tk.END, code_part[1:-1], "code")
+                    else:
+                        text_widget.insert(tk.END, code_part, "content")
+    
+    def _copy_report_content(self, suggestions):
+        """复制报告内容到剪贴板"""
+        try:
+            content = "羽毛球动作智能分析报告\n"
+            content += "=" * 50 + "\n"
+            content += f"视频文件: {os.path.basename(self.video_path)}\n"
+            content += f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            
+            content += "分析建议:\n"
+            content += "-" * 30 + "\n"
+            for i, suggestion in enumerate(suggestions, 1):
+                content += f"{i}. {suggestion}\n\n"
+            
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+            messagebox.showinfo("复制成功", "报告内容已复制到剪贴板！")
+            
+        except Exception as e:
+            messagebox.showerror("复制失败", f"复制内容时发生错误: {str(e)}")
+    
+    def _export_current_report(self, suggestions):
+        """导出当前分析报告"""
+        file_path = filedialog.asksaveasfilename(
+            title="保存分析报告",
+            defaultextension=".txt",
+            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+            initialname=f"{os.path.basename(self.video_path)}_分析报告.txt"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write("羽毛球动作智能分析报告\n")
+                    f.write("=" * 50 + "\n")
+                    f.write(f"视频文件: {os.path.basename(self.video_path)}\n")
+                    f.write(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                    
+                    f.write("分析建议:\n")
+                    f.write("-" * 30 + "\n")
+                    for i, suggestion in enumerate(suggestions, 1):
+                        f.write(f"{i}. {suggestion}\n\n")
+                
+                messagebox.showinfo("导出成功", f"报告已保存到: {file_path}")
+                
+            except Exception as e:
+                messagebox.showerror("导出失败", f"保存文件时发生错误: {str(e)}")
+    
     def _update_video_display(self, img_tk):
         """更新视频显示"""
         self.video_label.configure(image=img_tk)
@@ -360,9 +757,13 @@ class MainWindow:
             latest_staged = max(staged_files, key=lambda x: os.path.getmtime(os.path.join("staged_templates", x)))
             self.update_feedback_box(f"  - 阶段化数据: {latest_staged}")
         
+        # 自动进行智能分析
+        self.update_feedback_box("\n🤖 开始智能分析...")
+        self._auto_analyze_with_ai()
+        
         self.update_feedback_box("\n✨ 您可以选择新的视频文件继续分析")
         
-        messagebox.showinfo("完成", "视频分析和转换已完成！\n\n生成的文件已保存到相应目录。")
+        messagebox.showinfo("完成", "视频分析、转换和智能分析已完成！\n\n生成的文件已保存到相应目录。")
         self._reset_ui_state()
     
     def disable_controls(self):
@@ -381,6 +782,13 @@ class MainWindow:
     def toggle_debug(self):
         """切换调试模式"""
         self.debug_mode = self.debug_var.get()
+    
+    def open_analysis_report(self):
+        """打开分析报告窗口"""
+        if self.report_window is None:
+            self.report_window = ReportWindowTk(self.root)
+        
+        self.report_window.show()
     
     # 旧的start_detection方法已被自动处理流程替代
     

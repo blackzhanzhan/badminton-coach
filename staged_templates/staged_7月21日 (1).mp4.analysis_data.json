@@ -1,0 +1,261 @@
+[
+  {
+    "stage": "准备",
+    "start_ms": 33,
+    "end_ms": 966.4000000000001,
+    "description": "初始准备，连续动作起点，身体调整。",
+    "expected_values": {
+      "elbow_angle": {
+        "min": 88,
+        "max": 118,
+        "ideal": 103
+      },
+      "shoulder_angle": {
+        "min": 28,
+        "max": 58,
+        "ideal": 43
+      },
+      "knee_angle": {
+        "min": 128,
+        "max": 158,
+        "ideal": 143
+      },
+      "body_lean": {
+        "min": 68,
+        "max": 88,
+        "ideal": 78
+      }
+    },
+    "key_landmarks": [
+      {
+        "time_ms": 33,
+        "landmarks": {
+          "0": {
+            "x": 964,
+            "y": 406
+          },
+          "7": {
+            "x": 1011,
+            "y": 409
+          },
+          "8": {
+            "x": 1021,
+            "y": 676
+          },
+          "11": {
+            "x": 1006,
+            "y": 684
+          }
+        }
+      }
+    ]
+  },
+  {
+    "stage": "移动/接近",
+    "start_ms": 966.4000000000001,
+    "end_ms": 1899.8000000000002,
+    "description": "连续移动，接近球点，保持流畅。",
+    "expected_values": {
+      "elbow_angle": {
+        "min": 98,
+        "max": 128,
+        "ideal": 113
+      },
+      "shoulder_angle": {
+        "min": 48,
+        "max": 78,
+        "ideal": 63
+      },
+      "knee_angle": {
+        "min": 138,
+        "max": 168,
+        "ideal": 153
+      },
+      "body_rotation": {
+        "min": 3,
+        "max": 23,
+        "ideal": 13
+      }
+    },
+    "key_landmarks": [
+      {
+        "time_ms": 966,
+        "landmarks": {
+          "0": {
+            "x": 966,
+            "y": 396
+          },
+          "7": {
+            "x": 1020,
+            "y": 399
+          },
+          "8": {
+            "x": 1034,
+            "y": 667
+          },
+          "11": {
+            "x": 1017,
+            "y": 677
+          }
+        }
+      }
+    ]
+  },
+  {
+    "stage": "后摆",
+    "start_ms": 1899.8000000000002,
+    "end_ms": 2833.2000000000003,
+    "description": "在连续动作中后摆蓄力，身体协调转动。",
+    "expected_values": {
+      "elbow_angle": {
+        "min": 78,
+        "max": 108,
+        "ideal": 93
+      },
+      "shoulder_angle": {
+        "min": 58,
+        "max": 88,
+        "ideal": 73
+      },
+      "knee_angle": {
+        "min": 118,
+        "max": 138,
+        "ideal": 128
+      },
+      "body_lean": {
+        "min": 58,
+        "max": 78,
+        "ideal": 68
+      }
+    },
+    "key_landmarks": [
+      {
+        "time_ms": 1900,
+        "landmarks": {
+          "0": {
+            "x": 973,
+            "y": 404
+          },
+          "7": {
+            "x": 1010,
+            "y": 429
+          },
+          "8": {
+            "x": 1046,
+            "y": 680
+          },
+          "11": {
+            "x": 1027,
+            "y": 689
+          }
+        }
+      }
+    ]
+  },
+  {
+    "stage": "击球/前挥",
+    "start_ms": 2833.2000000000003,
+    "end_ms": 3766.6000000000004,
+    "description": "连续挥拍击球，发力流畅，身体前倾。",
+    "expected_values": {
+      "elbow_angle": {
+        "min": 148,
+        "max": 178,
+        "ideal": 163
+      },
+      "shoulder_angle": {
+        "min": 88,
+        "max": 118,
+        "ideal": 103
+      },
+      "knee_angle": {
+        "min": 138,
+        "max": 158,
+        "ideal": 148
+      },
+      "wrist_angle": {
+        "min": 158,
+        "max": 178,
+        "ideal": 168
+      }
+    },
+    "key_landmarks": [
+      {
+        "time_ms": 2833,
+        "landmarks": {
+          "0": {
+            "x": 1003,
+            "y": 414
+          },
+          "7": {
+            "x": 1056,
+            "y": 444
+          },
+          "8": {
+            "x": 1070,
+            "y": 687
+          },
+          "11": {
+            "x": 1055,
+            "y": 695
+          }
+        }
+      }
+    ]
+  },
+  {
+    "stage": "收势",
+    "start_ms": 3766.6000000000004,
+    "end_ms": 4700,
+    "description": "连续动作收尾，快速恢复，准备下一次击球。",
+    "expected_values": {
+      "elbow_angle": {
+        "min": 88,
+        "max": 118,
+        "ideal": 103
+      },
+      "shoulder_angle": {
+        "min": 28,
+        "max": 58,
+        "ideal": 43
+      },
+      "knee_angle": {
+        "min": 128,
+        "max": 158,
+        "ideal": 143
+      },
+      "body_rotation": {
+        "min": 2,
+        "max": 18,
+        "ideal": 10
+      }
+    },
+    "key_landmarks": [
+      {
+        "time_ms": 4700,
+        "landmarks": {
+          "0": {
+            "x": 1116,
+            "y": 359
+          },
+          "4": {
+            "x": 1124,
+            "y": 618
+          },
+          "7": {
+            "x": 1110,
+            "y": 485
+          },
+          "8": {
+            "x": 1095,
+            "y": 642
+          },
+          "11": {
+            "x": 1165,
+            "y": 655
+          }
+        }
+      }
+    ]
+  }
+]

@@ -2,12 +2,14 @@ import os
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                            QPushButton, QLabel, QFileDialog, QComboBox)
+                            QPushButton, QLabel, QFileDialog, QComboBox, QMessageBox)
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer, Qt
 
 from modules.pose_detector import PoseDetector
 from modules.badminton_analyzer import BadmintonAnalyzer
+from modules.pose_analyzer import PoseAnalyzer
+from ui.report_window import ReportWindow
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -21,6 +23,10 @@ class MainWindow(QMainWindow):
         # 初始化姿势检测器和分析器
         self.pose_detector = PoseDetector()
         self.badminton_analyzer = BadmintonAnalyzer()
+        self.pose_analyzer = PoseAnalyzer()
+        
+        # 报告窗口
+        self.report_window = None
         
         # 视频相关变量
         self.cap = None
@@ -82,9 +88,14 @@ class MainWindow(QMainWindow):
         self.file_button.setEnabled(False)
         self.file_button.setMinimumWidth(100)
         
+        self.analysis_button = QPushButton("分析报告")
+        self.analysis_button.clicked.connect(self.open_analysis_dialog)
+        self.analysis_button.setMinimumWidth(100)
+        
         bottom_layout.addWidget(self.source_combo)
         bottom_layout.addWidget(self.file_button)
         bottom_layout.addWidget(self.start_button)
+        bottom_layout.addWidget(self.analysis_button)
         
         # 添加到主布局
         main_layout.addLayout(top_layout, 4)
@@ -153,6 +164,37 @@ class MainWindow(QMainWindow):
             self.video_label.width(), self.video_label.height(), 
             Qt.KeepAspectRatio))
     
+    def open_analysis_dialog(self):
+        """打开分析对话框"""
+        # 选择标准模板文件
+        standard_file, _ = QFileDialog.getOpenFileName(
+            self, "选择标准动作模板", "templates/", "JSON文件 (*.json)"
+        )
+        
+        if not standard_file:
+            return
+        
+        # 选择用户数据文件
+        learner_file, _ = QFileDialog.getOpenFileName(
+            self, "选择用户动作数据", "output/", "JSON文件 (*.json)"
+        )
+        
+        if not learner_file:
+            return
+        
+        # 创建并显示报告窗口
+        if self.report_window is None:
+            self.report_window = ReportWindow(self)
+        
+        self.report_window.show()
+        self.report_window.raise_()
+        self.report_window.activateWindow()
+        
+        # 开始分析
+        self.report_window.start_analysis(standard_file, learner_file)
+    
     def closeEvent(self, event):
         self.stop_detection()
-        event.accept() 
+        if self.report_window:
+            self.report_window.close()
+        event.accept()
