@@ -168,7 +168,7 @@ class JsonConverter:
                     self.api_url,
                     headers=headers,
                     json=data,
-                    timeout=60,
+                    timeout=300,  # 5分钟超时
                     proxies=proxies
                 )
                 response.raise_for_status()
