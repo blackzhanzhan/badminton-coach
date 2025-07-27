@@ -139,26 +139,9 @@ class ReportWindowTk:
                                           maximum=100, length=400)
         self.progress_bar.pack(pady=(0, 10))
         
-        # 创建主要内容区域（左右分布）
-        content_frame = tk.Frame(self.analysis_frame)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # 左侧：雷达图区域
-        radar_frame = ttk.LabelFrame(content_frame, text="五维度评分雷达图")
-        radar_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=(0, 5))
-        
-        # 雷达图显示区域
-        self.radar_canvas = tk.Canvas(radar_frame, width=400, height=400, bg='white')
-        self.radar_canvas.pack(padx=10, pady=10)
-        
-        # 维度评分文本显示
-        self.dimension_text = tk.Text(radar_frame, height=8, width=50, wrap=tk.WORD, 
-                                    font=('Microsoft YaHei', 9), state=tk.DISABLED)
-        self.dimension_text.pack(padx=10, pady=(0, 10))
-        
-        # 右侧：建议区域
-        suggestions_frame = ttk.LabelFrame(content_frame, text="分析建议")
-        suggestions_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        # 建议区域
+        suggestions_frame = ttk.LabelFrame(self.analysis_frame, text="智能分析建议")
+        suggestions_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # 创建文本框和滚动条
         text_frame = ttk.Frame(suggestions_frame)
@@ -173,7 +156,6 @@ class ReportWindowTk:
         
         # 初始文本
         self.update_suggestions_text("暂无分析结果")
-        self.update_dimension_text("暂无评分数据")
         
     def create_data_tab(self):
         """创建详细数据选项卡"""
@@ -355,17 +337,8 @@ class ReportWindowTk:
         
         # 显示建议
         if isinstance(self.report_data['suggestions'], dict):
-            # 新格式：包含雷达图和维度评分
+            # 新格式：只显示文字建议
             suggestions = self.report_data['suggestions']
-            
-            # 显示雷达图
-            if 'radar_chart' in suggestions:
-                self.display_radar_chart(suggestions['radar_chart'])
-            
-            # 显示维度评分
-            if 'dimension_analysis' in suggestions:
-                dimension_text = "五维度评分分析：\n\n" + "\n".join(suggestions['dimension_analysis'])
-                self.update_dimension_text(dimension_text)
             
             # 显示文字建议
             if 'llm_enhanced_advice' in suggestions:
@@ -399,96 +372,7 @@ class ReportWindowTk:
         self.suggestions_text.insert(1.0, text)
         self.suggestions_text.config(state=tk.DISABLED)
     
-    def update_dimension_text(self, text):
-        """更新维度评分文本"""
-        self.dimension_text.config(state=tk.NORMAL)
-        self.dimension_text.delete(1.0, tk.END)
-        self.dimension_text.insert(1.0, text)
-        self.dimension_text.config(state=tk.DISABLED)
-    
-    def draw_radar_chart(self, scores):
-        """绘制雷达图"""
-        import math
-        
-        # 清空画布
-        self.radar_canvas.delete("all")
-        
-        # 画布尺寸
-        width = 400
-        height = 400
-        center_x = width // 2
-        center_y = height // 2
-        radius = 150
-        
-        # 五个维度
-        dimensions = ['技术动作', '力量控制', '节奏把握', '身体协调', '稳定性']
-        num_dimensions = len(dimensions)
-        
-        # 绘制背景网格
-        for i in range(1, 6):
-            r = radius * i / 5
-            points = []
-            for j in range(num_dimensions):
-                angle = 2 * math.pi * j / num_dimensions - math.pi / 2
-                x = center_x + r * math.cos(angle)
-                y = center_y + r * math.sin(angle)
-                points.extend([x, y])
-            self.radar_canvas.create_polygon(points, outline='lightgray', fill='', width=1)
-        
-        # 绘制维度线
-        for i in range(num_dimensions):
-            angle = 2 * math.pi * i / num_dimensions - math.pi / 2
-            x = center_x + radius * math.cos(angle)
-            y = center_y + radius * math.sin(angle)
-            self.radar_canvas.create_line(center_x, center_y, x, y, fill='lightgray', width=1)
-            
-            # 添加维度标签
-            label_x = center_x + (radius + 20) * math.cos(angle)
-            label_y = center_y + (radius + 20) * math.sin(angle)
-            self.radar_canvas.create_text(label_x, label_y, text=dimensions[i], 
-                                        font=('Microsoft YaHei', 10), anchor='center')
-        
-        # 绘制数据多边形
-        if scores and len(scores) == num_dimensions:
-            points = []
-            for i, score in enumerate(scores):
-                angle = 2 * math.pi * i / num_dimensions - math.pi / 2
-                r = radius * score / 100  # 假设分数是0-100
-                x = center_x + r * math.cos(angle)
-                y = center_y + r * math.sin(angle)
-                points.extend([x, y])
-            
-            # 绘制填充区域
-            self.radar_canvas.create_polygon(points, outline='blue', fill='lightblue', 
-                                           width=2, stipple='gray25')
-            
-            # 绘制数据点
-            for i in range(0, len(points), 2):
-                x, y = points[i], points[i+1]
-                self.radar_canvas.create_oval(x-4, y-4, x+4, y+4, fill='red', outline='darkred')
-    
-    def display_radar_chart(self, radar_chart_base64):
-        """显示雷达图"""
-        try:
-            # 解码base64图像
-            image_data = base64.b64decode(radar_chart_base64)
-            image = Image.open(BytesIO(image_data))
-            
-            # 调整图像大小以适应画布
-            image = image.resize((380, 380), Image.Resampling.LANCZOS)
-            
-            # 转换为Tkinter可用的格式
-            self.radar_image = ImageTk.PhotoImage(image)
-            
-            # 清空画布并显示图像
-            self.radar_canvas.delete("all")
-            self.radar_canvas.create_image(200, 200, image=self.radar_image)
-            
-        except Exception as e:
-            # 如果显示图像失败，显示错误信息
-            self.radar_canvas.delete("all")
-            self.radar_canvas.create_text(200, 200, text=f"雷达图显示失败\n{str(e)}", 
-                                        font=('Microsoft YaHei', 12), anchor='center')
+
     
     def update_data_table(self):
         """更新数据表格"""

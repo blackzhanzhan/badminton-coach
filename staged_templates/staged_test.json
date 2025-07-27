@@ -1,0 +1,67 @@
+[
+  {
+    "stage": "准备阶段",
+    "start_ms": 0,
+    "end_ms": 500,
+    "expected_values": {
+      "left_shoulder_angle": 45.2,
+      "right_shoulder_angle": 48.1,
+      "left_elbow_angle": 135.5,
+      "right_elbow_angle": 140.2,
+      "left_wrist_angle": 165.8,
+      "right_wrist_angle": 170.3
+    }
+  },
+  {
+    "stage": "引拍阶段",
+    "start_ms": 500,
+    "end_ms": 1200,
+    "expected_values": {
+      "left_shoulder_angle": 85.3,
+      "right_shoulder_angle": 90.7,
+      "left_elbow_angle": 95.2,
+      "right_elbow_angle": 98.5,
+      "left_wrist_angle": 145.6,
+      "right_wrist_angle": 150.1
+    }
+  },
+  {
+    "stage": "击球阶段",
+    "start_ms": 1200,
+    "end_ms": 1400,
+    "expected_values": {
+      "left_shoulder_angle": 125.8,
+      "right_shoulder_angle": 130.2,
+      "left_elbow_angle": 165.4,
+      "right_elbow_angle": 170.1,
+      "left_wrist_angle": 175.9,
+      "right_wrist_angle": 180.0
+    }
+  },
+  {
+    "stage": "随挥阶段",
+    "start_ms": 1400,
+    "end_ms": 2000,
+    "expected_values": {
+      "left_shoulder_angle": 155.7,
+      "right_shoulder_angle": 160.3,
+      "left_elbow_angle": 145.8,
+      "right_elbow_angle": 150.2,
+      "left_wrist_angle": 135.4,
+      "right_wrist_angle": 140.1
+    }
+  },
+  {
+    "stage": "收拍阶段",
+    "start_ms": 2000,
+    "end_ms": 2500,
+    "expected_values": {
+      "left_shoulder_angle": 45.1,
+      "right_shoulder_angle": 48.9,
+      "left_elbow_angle": 135.2,
+      "right_elbow_angle": 140.5,
+      "left_wrist_angle": 165.3,
+      "right_wrist_angle": 170.8
+    }
+  }
+]

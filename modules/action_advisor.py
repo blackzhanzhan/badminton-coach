@@ -59,14 +59,7 @@ class ActionAdvisor:
             "major": 600    # 严重时间偏差（降低到600ms）
         }
         
-        # 5个击球动作评分维度
-        self.score_dimensions = {
-            "posture_stability": "姿态稳定性",
-            "timing_precision": "击球时机", 
-            "movement_fluency": "动作流畅性",
-            "power_transfer": "力量传递",
-            "technical_standard": "技术规范性"
-        }
+        # 移除评分维度相关配置
     
     def _load_api_key_from_config(self) -> str:
         """
@@ -157,7 +150,6 @@ class ActionAdvisor:
             对比分析结果
         """
         comparison_result = {
-            "overall_score": 0,
             "stage_comparisons": [],
             "critical_issues": [],
             "improvement_suggestions": []
@@ -170,18 +162,19 @@ class ActionAdvisor:
             )
             return comparison_result
         
-        total_score = 0
-        
         for i, (user_stage, template_stage) in enumerate(zip(user_data, template_data)):
             stage_comparison = self._compare_single_stage(user_stage, template_stage)
             comparison_result["stage_comparisons"].append(stage_comparison)
-            total_score += stage_comparison["score"]
             
-            # 收集严重问题
-            if stage_comparison["score"] < 60:
-                comparison_result["critical_issues"].extend(stage_comparison["issues"])
+            # 收集关键问题
+            timing_issues = stage_comparison.get("timing_analysis", {}).get("issues", [])
+            angle_issues = stage_comparison.get("angle_analysis", {}).get("issues", [])
+            
+            # 将严重的时间和角度问题添加到关键问题列表
+            for issue in timing_issues + angle_issues:
+                if "偏差过大" in issue or "偏差严重" in issue:
+                    comparison_result["critical_issues"].append(issue)
         
-        comparison_result["overall_score"] = total_score / 5
         return comparison_result
     
     def _compare_single_stage(self, user_stage: Dict, template_stage: Dict) -> Dict[str, Any]:
@@ -195,9 +188,9 @@ class ActionAdvisor:
         Returns:
             单阶段对比结果
         """
+        stage_name = user_stage.get("stage", "未知阶段")
         stage_result = {
-            "stage_name": user_stage.get("stage", "未知阶段"),
-            "score": 100,
+            "stage_name": stage_name,
             "timing_analysis": {},
             "angle_analysis": {},
             "issues": [],
@@ -212,7 +205,6 @@ class ActionAdvisor:
             template_stage.get("end_ms", 0)
         )
         stage_result["timing_analysis"] = timing_analysis
-        stage_result["score"] -= timing_analysis["penalty"]
         
         # 2. 角度分析
         angle_analysis = self._analyze_angles(
@@ -220,7 +212,6 @@ class ActionAdvisor:
             template_stage.get("expected_values", {})
         )
         stage_result["angle_analysis"] = angle_analysis
-        stage_result["score"] -= angle_analysis["penalty"]
         
         # 3. 生成具体建议
         stage_result["suggestions"] = self._generate_stage_suggestions(
@@ -228,9 +219,6 @@ class ActionAdvisor:
             timing_analysis,
             angle_analysis
         )
-        
-        # 确保分数不低于0
-        stage_result["score"] = max(0, stage_result["score"])
         
         return stage_result
     
@@ -252,36 +240,45 @@ class ActionAdvisor:
         duration_diff = abs(user_duration - template_duration)
         start_diff = abs(user_start - template_start)
         
-        penalty = 0
         issues = []
         
-        # 持续时间分析（更严格的扣分）
+        # 持续时间分析
         if duration_diff > self.time_thresholds["major"]:
-            penalty += 30  # 增加扣分
-            issues.append(f"阶段持续时间偏差过大：{duration_diff}ms")
+            issues.append(f"阶段持续时间偏差过大：{self._format_time_diff(duration_diff)}")
         elif duration_diff > self.time_thresholds["moderate"]:
-            penalty += 20  # 增加扣分
-            issues.append(f"阶段持续时间偏差较大：{duration_diff}ms")
+            issues.append(f"阶段持续时间偏差较大：{self._format_time_diff(duration_diff)}")
         elif duration_diff > self.time_thresholds["minor"]:
-            penalty += 10  # 增加扣分
-            issues.append(f"阶段持续时间略有偏差：{duration_diff}ms")
+            issues.append(f"阶段持续时间略有偏差：{self._format_time_diff(duration_diff)}")
         
-        # 开始时间分析（更严格的扣分）
+        # 开始时间分析
         if start_diff > self.time_thresholds["moderate"]:
-            penalty += 15  # 增加扣分
-            issues.append(f"阶段开始时间偏差：{start_diff}ms")
+            issues.append(f"阶段开始时间偏差：{self._format_time_diff(start_diff)}")
         elif start_diff > self.time_thresholds["minor"]:
-            penalty += 8   # 新增轻微偏差扣分
-            issues.append(f"阶段开始时间略有偏差：{start_diff}ms")
+            issues.append(f"阶段开始时间略有偏差：{self._format_time_diff(start_diff)}")
         
         return {
             "user_duration": user_duration,
             "template_duration": template_duration,
             "duration_diff": duration_diff,
             "start_diff": start_diff,
-            "penalty": penalty,
             "issues": issues
         }
+    
+    def _format_time_diff(self, time_ms: int) -> str:
+        """
+        将毫秒时间差转换为更友好的显示格式
+        
+        Args:
+            time_ms: 时间差（毫秒）
+            
+        Returns:
+            格式化的时间字符串
+        """
+        if time_ms >= 1000:
+            seconds = time_ms / 1000
+            return f"{seconds:.1f}秒"
+        else:
+            return f"{time_ms}毫秒"
     
     def _analyze_angles(self, user_angles: Dict, template_angles: Dict) -> Dict[str, Any]:
         """
@@ -294,7 +291,6 @@ class ActionAdvisor:
         Returns:
             角度分析结果
         """
-        penalty = 0
         issues = []
         angle_details = {}
         
@@ -310,8 +306,6 @@ class ActionAdvisor:
         # 分析每个关键角度
         for angle_name in template_angles.keys():
             if angle_name not in user_angles:
-                # 对于缺失的角度数据，给予较轻的惩罚
-                penalty += 5  # 降低惩罚
                 issues.append(f"缺少角度数据：{angle_name}")
                 continue
             
@@ -334,24 +328,20 @@ class ActionAdvisor:
                 "severity": "normal"
             }
             
-            # 根据角度差异评估严重程度（更严格的扣分）
+            # 根据角度差异评估严重程度
             if angle_diff > self.angle_thresholds["major"]:
-                penalty += 25  # 增加扣分
                 angle_detail["severity"] = "major"
                 issues.append(f"{display_name}偏差严重：{angle_diff:.1f}°")
             elif angle_diff > self.angle_thresholds["moderate"]:
-                penalty += 15  # 增加扣分
                 angle_detail["severity"] = "moderate"
                 issues.append(f"{display_name}偏差较大：{angle_diff:.1f}°")
             elif angle_diff > self.angle_thresholds["minor"]:
-                penalty += 8   # 增加扣分
                 angle_detail["severity"] = "minor"
                 issues.append(f"{display_name}略有偏差：{angle_diff:.1f}°")
             
             angle_details[angle_name] = angle_detail
         
         return {
-            "penalty": penalty,
             "issues": issues,
             "angle_details": angle_details
         }
@@ -373,10 +363,11 @@ class ActionAdvisor:
         
         # 时间相关建议
         if timing_analysis["duration_diff"] > self.time_thresholds["moderate"]:
+            time_diff_str = self._format_time_diff(timing_analysis['duration_diff'])
             if timing_analysis["user_duration"] > timing_analysis["template_duration"]:
-                suggestions.append(f"【{stage_name}】动作过慢，建议加快节奏，缩短{timing_analysis['duration_diff']}ms")
+                suggestions.append(f"【{stage_name}】动作过慢，建议加快节奏，缩短{time_diff_str}")
             else:
-                suggestions.append(f"【{stage_name}】动作过快，建议放慢节奏，延长{timing_analysis['duration_diff']}ms")
+                suggestions.append(f"【{stage_name}】动作过快，建议放慢节奏，延长{time_diff_str}")
         
         # 角度相关建议
         for angle_name, angle_detail in angle_analysis.get("angle_details", {}).items():
@@ -412,189 +403,9 @@ class ActionAdvisor:
         
         return suggestions
     
-    def calculate_five_dimension_scores(self, comparison_result: Dict[str, Any]) -> Dict[str, float]:
-        """
-        计算5个维度的评分
-        
-        Args:
-            comparison_result: 对比分析结果
-            
-        Returns:
-            5个维度的评分字典
-        """
-        scores = {}
-        stage_comparisons = comparison_result.get("stage_comparisons", [])
-        
-        if not stage_comparisons:
-            return {dim: 0 for dim in self.score_dimensions.keys()}
-        
-        # 1. 姿态稳定性 - 基于关键关节角度的一致性
-        posture_scores = []
-        for stage in stage_comparisons:
-            angle_analysis = stage.get("angle_analysis", {})
-            angle_details = angle_analysis.get("angle_details", {})
-            
-            stage_posture_score = 100
-            for angle_name, detail in angle_details.items():
-                if "shoulder" in angle_name or "hip" in angle_name:  # 核心姿态角度
-                    diff = detail.get("difference", 0)
-                    if diff > 15:
-                        stage_posture_score -= 25
-                    elif diff > 8:
-                        stage_posture_score -= 15
-                    elif diff > 3:
-                        stage_posture_score -= 8
-            
-            posture_scores.append(max(0, stage_posture_score))
-        
-        scores["posture_stability"] = sum(posture_scores) / len(posture_scores)
-        
-        # 2. 击球时机 - 基于时间偏差
-        timing_scores = []
-        for stage in stage_comparisons:
-            timing_analysis = stage.get("timing_analysis", {})
-            duration_diff = timing_analysis.get("duration_diff", 0)
-            start_diff = timing_analysis.get("start_diff", 0)
-            
-            stage_timing_score = 100
-            if duration_diff > 600:
-                stage_timing_score -= 30
-            elif duration_diff > 300:
-                stage_timing_score -= 20
-            elif duration_diff > 100:
-                stage_timing_score -= 10
-            
-            if start_diff > 300:
-                stage_timing_score -= 15
-            elif start_diff > 100:
-                stage_timing_score -= 8
-            
-            timing_scores.append(max(0, stage_timing_score))
-        
-        scores["timing_precision"] = sum(timing_scores) / len(timing_scores)
-        
-        # 3. 动作流畅性 - 基于阶段间的连贯性
-        fluency_score = 100
-        for i in range(len(stage_comparisons) - 1):
-            current_stage = stage_comparisons[i]
-            next_stage = stage_comparisons[i + 1]
-            
-            # 检查阶段转换的流畅性
-            current_end = current_stage.get("timing_analysis", {}).get("user_duration", 0)
-            next_start = next_stage.get("timing_analysis", {}).get("start_diff", 0)
-            
-            if abs(next_start) > 200:  # 阶段间隔过大
-                fluency_score -= 15
-            elif abs(next_start) > 100:
-                fluency_score -= 8
-        
-        scores["movement_fluency"] = max(0, fluency_score)
-        
-        # 4. 力量传递 - 基于肘部和手腕角度的协调性
-        power_scores = []
-        for stage in stage_comparisons:
-            angle_analysis = stage.get("angle_analysis", {})
-            angle_details = angle_analysis.get("angle_details", {})
-            
-            stage_power_score = 100
-            elbow_angles = [detail for name, detail in angle_details.items() if "elbow" in name]
-            wrist_angles = [detail for name, detail in angle_details.items() if "wrist" in name]
-            
-            for detail in elbow_angles + wrist_angles:
-                diff = detail.get("difference", 0)
-                if diff > 15:
-                    stage_power_score -= 20
-                elif diff > 8:
-                    stage_power_score -= 12
-                elif diff > 3:
-                    stage_power_score -= 6
-            
-            power_scores.append(max(0, stage_power_score))
-        
-        scores["power_transfer"] = sum(power_scores) / len(power_scores) if power_scores else 0
-        
-        # 5. 技术规范性 - 基于整体评分
-        overall_score = comparison_result.get("overall_score", 0)
-        scores["technical_standard"] = overall_score
-        
-        return scores
+
     
-    def generate_radar_chart(self, scores: Dict[str, float]) -> str:
-        """
-        生成5维度雷达图
-        
-        Args:
-            scores: 5个维度的评分字典
-            
-        Returns:
-            雷达图的base64编码字符串
-        """
-        try:
-            # 设置matplotlib为非交互式后端
-            import matplotlib
-            matplotlib.use('Agg')  # 使用非GUI后端
-            
-            # 设置中文字体
-            plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
-            plt.rcParams['axes.unicode_minus'] = False
-        except Exception as e:
-            print(f"警告: 设置matplotlib后端失败: {e}")
-            # 返回空字符串，让程序继续运行
-            return ""
-        
-        try:
-            # 创建图形
-            fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(projection='polar'))
-            
-            # 维度标签和数值
-            dimensions = list(self.score_dimensions.values())
-            values = [scores.get(key, 0) for key in self.score_dimensions.keys()]
-            
-            # 计算角度
-            angles = np.linspace(0, 2 * np.pi, len(dimensions), endpoint=False).tolist()
-            values += values[:1]  # 闭合图形
-            angles += angles[:1]
-            
-            # 绘制雷达图
-            ax.plot(angles, values, 'o-', linewidth=2, color='#1f77b4', label='当前表现')
-            ax.fill(angles, values, alpha=0.25, color='#1f77b4')
-            
-            # 添加参考线
-            reference_values = [100] * (len(dimensions) + 1)
-            ax.plot(angles, reference_values, '--', linewidth=1, color='gray', alpha=0.7, label='满分参考')
-            
-            # 设置标签
-            ax.set_xticks(angles[:-1])
-            ax.set_xticklabels(dimensions, fontsize=12)
-            
-            # 设置径向刻度
-            ax.set_ylim(0, 100)
-            ax.set_yticks([20, 40, 60, 80, 100])
-            ax.set_yticklabels(['20', '40', '60', '80', '100'], fontsize=10)
-            ax.grid(True)
-            
-            # 添加标题和图例
-            plt.title('羽毛球击球动作五维度评分', fontsize=16, fontweight='bold', pad=20)
-            plt.legend(loc='upper right', bbox_to_anchor=(1.2, 1.0))
-            
-            # 在每个维度旁边显示具体分数
-            for angle, value, dimension in zip(angles[:-1], values[:-1], dimensions):
-                ax.text(angle, value + 5, f'{value:.1f}', 
-                       horizontalalignment='center', fontsize=10, fontweight='bold')
-            
-            # 保存为base64字符串
-            buffer = BytesIO()
-            plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
-            buffer.seek(0)
-            image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            plt.close()
-            
-            return image_base64
-            
-        except Exception as e:
-            print(f"警告: 生成雷达图失败: {e}")
-            # 返回空字符串，让程序继续运行
-            return ""
+
     
     def generate_comprehensive_advice(self, user_file_path: str = None, 
                                     template_file_path: str = None) -> Dict[str, Any]:
@@ -622,24 +433,20 @@ class ActionAdvisor:
             # 进行对比分析
             comparison_result = self.compare_stages(user_data, template_data)
             
-            # 计算5维度评分
-            dimension_scores = self.calculate_five_dimension_scores(comparison_result)
-            
-            # 生成雷达图
-            radar_chart_base64 = self.generate_radar_chart(dimension_scores)
-            
             # 生成LLM增强建议（使用流式版本）
-            llm_advice = self._generate_llm_advice_streaming(comparison_result, user_data, template_data)
+            llm_response = self._generate_llm_advice_streaming(comparison_result, user_data, template_data)
             
-            # 构建最终报告
+            # 提取LLM返回的建议
+            if isinstance(llm_response, dict):
+                llm_advice = llm_response.get("advice", "AI建议生成失败")
+            else:
+                llm_advice = llm_response if isinstance(llm_response, str) else "AI建议生成失败"
+            
+            # 构建最终报告（移除评分相关内容）
             final_report = {
                 "analysis_timestamp": self._get_timestamp(),
                 "user_file": os.path.basename(user_file_path),
                 "template_file": os.path.basename(template_file_path),
-                "overall_score": comparison_result["overall_score"],
-                "performance_level": self._get_performance_level(comparison_result["overall_score"]),
-                "dimension_scores": dimension_scores,
-                "radar_chart": radar_chart_base64,
                 "stage_analysis": comparison_result["stage_comparisons"],
                 "critical_issues": comparison_result["critical_issues"],
                 "detailed_suggestions": self._collect_all_suggestions(comparison_result),
@@ -690,7 +497,7 @@ class ActionAdvisor:
     def _generate_llm_advice(self, comparison_result: Dict, user_data: List[Dict], 
                            template_data: List[Dict]) -> str:
         """
-        使用LLM生成增强的建议
+        使用LLM生成增强的建议（非流式版本，作为备用）
         
         Args:
             comparison_result: 对比分析结果
@@ -702,6 +509,79 @@ class ActionAdvisor:
         """
         if not self.api_key:
             return "未配置API密钥，无法生成LLM增强建议"
+        
+        # 构建优化的提示词
+        prompt = f"""
+你是一位专业的羽毛球教练，请基于以下动作分析数据，为学员提供具体、可操作的训练建议。
+
+【关键问题】:
+{chr(10).join(comparison_result['critical_issues']) if comparison_result['critical_issues'] else '无严重问题'}
+
+【各阶段表现】:
+{self._format_stage_summary(comparison_result['stage_comparisons'])}
+
+训练建议要求：
+1. 针对性的技术纠正建议（具体到身体部位和角度）
+2. 训练重点和练习方法
+3. 循序渐进的改进计划
+4. 注意事项和常见错误避免
+
+要求：建议要具体、实用，避免泛泛而谈。请直接提供训练建议文本。
+"""
+        
+        max_retries = 2  # 减少重试次数
+        timeout_values = [60, 90]  # 更短的超时时间
+        
+        for attempt in range(max_retries):
+            try:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}"
+                }
+                
+                data = {
+                    "model": "doubao-seed-1-6-thinking-250715",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.7,
+                    "max_tokens": 3072 if attempt == 0 else 2048,  # 首次尝试更多token
+                    "top_p": 0.9
+                }
+                
+                current_timeout = timeout_values[attempt]
+                status_msg = f"🌐 正在调用AI服务 (尝试 {attempt + 1}/{max_retries})\n   超时设置: {current_timeout}秒"
+                self._send_status(status_msg)
+                
+                response = requests.post(
+                    self.api_url,
+                    headers=headers,
+                    json=data,
+                    timeout=current_timeout,
+                    proxies={'http': None, 'https': None}
+                )
+                
+                response.raise_for_status()
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                
+                # 直接返回文本内容
+                return content.strip()
+                
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    self._send_status(f"⏰ 连接超时，正在重试...")
+                    continue
+                else:
+                    self._send_status("⏰ 连接超时，切换到本地分析模式")
+                    return self._generate_fallback_advice(comparison_result)
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    self._send_status(f"⚠️ 调用失败，正在重试...")
+                    continue
+                else:
+                    self._send_status(f"❌ AI服务失败，切换到本地分析模式")
+                    return self._generate_fallback_advice(comparison_result)
+        
+        return self._generate_fallback_advice(comparison_result)
     
     def _generate_llm_advice_streaming(self, comparison_result: Dict, user_data: List[Dict], 
                                      template_data: List[Dict]) -> str:
@@ -723,21 +603,19 @@ class ActionAdvisor:
         prompt = f"""
 你是一位专业的羽毛球教练，请基于以下动作分析数据，为学员提供具体、可操作的训练建议。
 
-【整体评分】: {comparison_result['overall_score']:.1f}/100
-
 【关键问题】:
 {chr(10).join(comparison_result['critical_issues']) if comparison_result['critical_issues'] else '无严重问题'}
 
 【各阶段表现】:
 {self._format_stage_summary(comparison_result['stage_comparisons'])}
 
-请提供：
+训练建议要求：
 1. 针对性的技术纠正建议（具体到身体部位和角度）
 2. 训练重点和练习方法
 3. 循序渐进的改进计划
 4. 注意事项和常见错误避免
 
-要求：建议要具体、实用，避免泛泛而谈。
+要求：建议要具体、实用，避免泛泛而谈。请直接提供训练建议文本，不需要JSON格式。
 """
         
         # 调试信息：检查API密钥
@@ -763,7 +641,7 @@ class ActionAdvisor:
                 "model": "doubao-seed-1-6-thinking-250715",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.7,
-                "max_tokens": 2048,
+                "max_tokens": 4096,  # 增加token限制以获得完整回复
                 "top_p": 0.9,
                 "stream": True  # 启用流式响应
             }
@@ -775,7 +653,7 @@ class ActionAdvisor:
                 self.api_url,
                 headers=headers,
                 json=data,
-                timeout=300,  # 5分钟超时
+                timeout=120,  # 减少超时时间到2分钟，提高响应速度
                 stream=True,  # 启用流式接收
                 proxies={'http': None, 'https': None}
             )
@@ -811,7 +689,9 @@ class ActionAdvisor:
             
             self._send_status("✅ AI服务流式调用成功！")
             print("LLM流式调用成功！")
-            return full_content
+            
+            # 返回完整的建议文本
+            return full_content.strip() if full_content.strip() else self._generate_fallback_advice(comparison_result)
             
         except requests.exceptions.Timeout:
             error_msg = "⏰ 流式连接超时\n🔄 切换到本地分析模式"
@@ -828,116 +708,6 @@ class ActionAdvisor:
             self._send_status(error_msg)
             print(f"LLM流式调用失败: {str(e)}")
             return self._generate_fallback_advice(comparison_result)
-        
-        # 构建提示词
-        prompt = f"""
-你是一位专业的羽毛球教练，请基于以下动作分析数据，为学员提供具体、可操作的训练建议。
-
-【整体评分】: {comparison_result['overall_score']:.1f}/100
-
-【关键问题】:
-{chr(10).join(comparison_result['critical_issues']) if comparison_result['critical_issues'] else '无严重问题'}
-
-【各阶段表现】:
-{self._format_stage_summary(comparison_result['stage_comparisons'])}
-
-请提供：
-1. 针对性的技术纠正建议（具体到身体部位和角度）
-2. 训练重点和练习方法
-3. 循序渐进的改进计划
-4. 注意事项和常见错误避免
-
-要求：建议要具体、实用，避免泛泛而谈。
-"""
-        
-        # 尝试多次调用LLM，增加容错性
-        max_retries = 3
-        timeout_values = [60, 180, 300]  # 递增的超时时间（1分钟、3分钟、5分钟）
-        
-        # 调试信息：检查API密钥
-        if not self.api_key:
-            error_msg = "❌ API密钥未配置或为空\n🔄 切换到本地分析模式"
-            self._send_status(error_msg)
-            print("错误: API密钥未配置")
-            return self._generate_fallback_advice(comparison_result)
-        
-        print(f"调试信息: API密钥已加载 (长度: {len(self.api_key)})")
-        print(f"调试信息: API URL: {self.api_url}")
-        
-        self._send_status("🔗 开始连接AI服务器...")
-        
-        for attempt in range(max_retries):
-            try:
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}"
-                }
-                
-                data = {
-                    "model": "doubao-seed-1-6-thinking-250715",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7,
-                    "max_tokens": 1024 if attempt > 0 else 2048,  # 重试时减少token数量
-                    "top_p": 0.9
-                }
-                
-                # 使用递增的超时时间
-                current_timeout = timeout_values[attempt]
-                status_msg = f"🌐 正在调用AI服务 (尝试 {attempt + 1}/{max_retries})\n   服务器: ark.cn-beijing.volces.com\n   超时设置: {current_timeout}秒\n   模型: doubao-seed-1-6-thinking-250715"
-                self._send_status(status_msg)
-                print(f"正在调用LLM (尝试 {attempt + 1}/{max_retries}, 超时: {current_timeout}秒)...")
-                
-                self._send_status("📡 发送请求数据...")
-                print(f"调试信息: 发送POST请求到 {self.api_url}")
-                print(f"调试信息: 请求头包含Authorization: Bearer {self.api_key[:10]}...")
-                print(f"调试信息: 请求数据模型: {data['model']}")
-                
-                response = requests.post(
-                    self.api_url,
-                    headers=headers,
-                    json=data,
-                    timeout=current_timeout,
-                    proxies={'http': None, 'https': None}
-                )
-                
-                self._send_status("📥 接收服务器响应...")
-                print(f"调试信息: 响应状态码: {response.status_code}")
-                print(f"调试信息: 响应头: {dict(response.headers)}")
-                response.raise_for_status()
-                
-                result = response.json()
-                self._send_status("✅ AI服务调用成功！正在处理响应数据...")
-                print("LLM调用成功！")
-                return result['choices'][0]['message']['content']
-                
-            except requests.exceptions.Timeout:
-                timeout_msg = f"⏰ 连接超时 ({current_timeout}秒)"
-                if attempt < max_retries - 1:
-                    retry_msg = f"{timeout_msg}，正在重试 ({attempt + 1}/{max_retries})..."
-                    self._send_status(retry_msg)
-                    print(f"LLM调用超时 ({current_timeout}秒)，正在重试 ({attempt + 1}/{max_retries})...")
-                    continue
-                else:
-                    final_msg = f"{timeout_msg}，所有重试已用完\n🔄 切换到本地分析模式"
-                    self._send_status(final_msg)
-                    print("LLM调用最终超时，使用本地分析结果")
-                    return self._generate_fallback_advice(comparison_result)
-            except requests.exceptions.ConnectionError as e:
-                error_msg = f"❌ 网络连接失败: {str(e)}\n🔄 切换到本地分析模式"
-                self._send_status(error_msg)
-                print(f"网络连接错误: {str(e)}")
-                return self._generate_fallback_advice(comparison_result)
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    retry_msg = f"⚠️ 调用失败，正在重试 ({attempt + 1}/{max_retries})\n   错误: {str(e)}"
-                    self._send_status(retry_msg)
-                    print(f"LLM调用失败，正在重试 ({attempt + 1}/{max_retries}): {str(e)}")
-                    continue
-                else:
-                    final_msg = f"❌ AI服务最终失败: {str(e)}\n🔄 切换到本地分析模式"
-                    self._send_status(final_msg)
-                    print(f"LLM调用最终失败: {str(e)}")
-                    return self._generate_fallback_advice(comparison_result)
     
     def _send_status(self, message: str) -> None:
         """
@@ -986,13 +756,12 @@ class ActionAdvisor:
         advice_lines.append("📋 基于本地分析的专业建议")
         advice_lines.append("="*30)
         
-        overall_score = comparison_result.get('overall_score', 0)
-        
-        # 根据整体评分给出总体建议
-        if overall_score >= 85:
-            advice_lines.append("🎯 整体表现: 您的技术水平很不错！")
+        # 分析关键问题给出总体建议
+        critical_issues = comparison_result.get('critical_issues', [])
+        if not critical_issues:
+            advice_lines.append("🎯 整体表现: 您的技术水平不错！")
             advice_lines.append("💡 建议重点: 继续保持现有水平，注重动作的一致性和稳定性。")
-        elif overall_score >= 65:
+        elif len(critical_issues) <= 2:
             advice_lines.append("🎯 整体表现: 基础扎实，但仍有改进空间。")
             advice_lines.append("💡 建议重点: 重点改进标记的问题区域，循序渐进提升技术。")
         else:
@@ -1003,14 +772,22 @@ class ActionAdvisor:
         
         # 分析各阶段问题并给出具体建议
         stage_comparisons = comparison_result.get('stage_comparisons', [])
-        problem_stages = [stage for stage in stage_comparisons if stage.get('score', 0) < 75]
+        # 找出有问题的阶段（基于问题数量）
+        problem_stages = []
+        for stage in stage_comparisons:
+            timing_issues = stage.get('timing_analysis', {}).get('issues', [])
+            angle_issues = stage.get('angle_analysis', {}).get('issues', [])
+            if len(timing_issues) + len(angle_issues) > 0:
+                problem_stages.append(stage)
         
         if problem_stages:
             advice_lines.append("🔧 重点改进阶段:")
             for stage in problem_stages:
                 stage_name = stage.get('stage_name', '未知阶段')
-                score = stage.get('score', 0)
-                advice_lines.append(f"\n📍 {stage_name} (得分: {score:.0f}/100)")
+                timing_issues = stage.get('timing_analysis', {}).get('issues', [])
+                angle_issues = stage.get('angle_analysis', {}).get('issues', [])
+                total_issues = len(timing_issues) + len(angle_issues)
+                advice_lines.append(f"\n📍 {stage_name} (发现 {total_issues} 个问题)")
                 
                 # 基于角度分析给出建议
                 angle_analysis = stage.get('angle_analysis', {})
@@ -1036,13 +813,13 @@ class ActionAdvisor:
         advice_lines.append("")
         advice_lines.append("📚 训练建议:")
         
-        # 根据评分给出训练建议
-        if overall_score < 50:
+        # 根据问题数量给出训练建议
+        if len(critical_issues) > 3:
             advice_lines.append("1. 从基础挥拍动作开始，重点练习正确的握拍和站位")
             advice_lines.append("2. 分解练习各个击球阶段，确保每个动作都标准")
             advice_lines.append("3. 建议寻求专业教练指导，建立正确的动作模式")
-        elif overall_score < 75:
-            advice_lines.append("1. 重点改进得分较低的动作阶段")
+        elif len(critical_issues) > 0:
+            advice_lines.append("1. 重点改进标记的问题动作阶段")
             advice_lines.append("2. 加强动作连贯性练习，提高整体流畅度")
             advice_lines.append("3. 注意击球时机的把握，多做节奏练习")
         else:
@@ -1069,13 +846,16 @@ class ActionAdvisor:
         summary_lines = []
         for stage in stage_comparisons:
             stage_name = stage['stage_name']
-            score = stage['score']
+            # 移除对score的引用
             issues = stage.get('issues', [])
             
-            summary_lines.append(f"- {stage_name}: {score:.1f}分")
+            # 显示阶段名称和问题
             if issues:
+                summary_lines.append(f"- {stage_name}: 发现 {len(issues)} 个问题")
                 for issue in issues[:2]:  # 只显示前2个问题
                     summary_lines.append(f"  问题: {issue}")
+            else:
+                summary_lines.append(f"- {stage_name}: 动作良好")
         
         return chr(10).join(summary_lines)
     
@@ -1110,40 +890,23 @@ class ActionAdvisor:
             "long_term": []        # 长期目标（1个月以上）
         }
         
-        # 根据评分确定练习重点（更严格的标准）
+        # 根据问题数量确定练习重点
         for stage in comparison_result['stage_comparisons']:
             stage_name = stage['stage_name']
-            score = stage['score']
+            timing_issues = stage.get('timing_analysis', {}).get('issues', [])
+            angle_issues = stage.get('angle_analysis', {}).get('issues', [])
+            total_issues = len(timing_issues) + len(angle_issues)
             
-            if score < 65:  # 提高标准
+            if total_issues >= 3:  # 问题较多
                 practice_plan["immediate_focus"].append(f"重点练习{stage_name}阶段的基本动作")
-            elif score < 85:  # 提高标准
+            elif total_issues >= 1:  # 有少量问题
                 practice_plan["short_term"].append(f"改进{stage_name}阶段的技术细节")
-            else:
+            else:  # 无明显问题
                 practice_plan["long_term"].append(f"优化{stage_name}阶段的动作流畅性")
         
         return practice_plan
     
-    def _get_performance_level(self, score: float) -> str:
-        """
-        根据评分获取表现等级（更严格的标准）
-        
-        Args:
-            score: 综合评分
-            
-        Returns:
-            表现等级描述
-        """
-        if score >= 95:
-            return "优秀 - 动作标准，继续保持"
-        elif score >= 85:
-            return "良好 - 基本标准，需要细节优化"
-        elif score >= 75:
-            return "中等 - 有明显问题，需要重点改进"
-        elif score >= 65:
-            return "及格 - 问题较多，需要系统训练"
-        else:
-            return "不及格 - 基础薄弱，建议从基本动作开始"
+
     
     def _get_timestamp(self) -> str:
         """
@@ -1174,13 +937,7 @@ class ActionAdvisor:
         lines.append(f"📁 分析文件: {report.get('user_file', '未知')}")
         lines.append("")
         
-        # 整体评分
-        score = report.get('overall_score', 0)
-        level = report.get('performance_level', '未知')
-        score_emoji = self._get_score_emoji(score)
-        lines.append(f"📊 整体评分: {score:.1f}/100 {score_emoji}")
-        lines.append(f"🎯 技术水平: {level}")
-        lines.append("")
+        # 移除整体评分显示
         
         # 各阶段详细分析
         lines.append("📋 各阶段分析详情")
@@ -1189,10 +946,8 @@ class ActionAdvisor:
         stage_analysis = report.get('stage_analysis', [])
         for i, stage in enumerate(stage_analysis, 1):
             stage_name = stage.get('stage_name', '未知阶段')
-            stage_score = stage.get('score', 0)
-            stage_emoji = self._get_score_emoji(stage_score)
             
-            lines.append(f"{i}. 【{stage_name}】 {stage_score:.0f}/100 {stage_emoji}")
+            lines.append(f"{i}. 【{stage_name}】")
             
             # 时间分析
             timing = stage.get('timing_analysis', {})
@@ -1214,9 +969,6 @@ class ActionAdvisor:
                 lines.append("   💡 改进建议:")
                 for suggestion in suggestions:
                     lines.append(f"     ✓ {suggestion}")
-            
-            if stage_score >= 85:
-                lines.append("   ✅ 该阶段表现良好，继续保持！")
             
             lines.append("")
         
@@ -1274,35 +1026,17 @@ class ActionAdvisor:
             lines.append("")
         
         # 结尾鼓励
-        if score >= 85:
+        critical_count = len(report.get('critical_issues', []))
+        if critical_count == 0:
             lines.append("🌟 总结: 您的技术水平很不错，继续保持并精益求精！")
-        elif score >= 65:
+        elif critical_count <= 2:
             lines.append("💪 总结: 基础扎实，重点改进标记的问题，很快就能提升！")
         else:
             lines.append("🚀 总结: 还有很大提升空间，按照建议坚持练习，进步会很明显！")
         
         return "\n".join(lines)
     
-    def _get_score_emoji(self, score: float) -> str:
-        """
-        根据分数获取对应的表情符号
-        
-        Args:
-            score: 分数
-            
-        Returns:
-            表情符号
-        """
-        if score >= 95:
-            return "🏆"
-        elif score >= 85:
-            return "😊"
-        elif score >= 75:
-            return "😐"
-        elif score >= 65:
-            return "😕"
-        else:
-            return "😰"
+
     
     def save_advice_report(self, report: Dict[str, Any], output_path: str = None, 
                           format_type: str = "json") -> str:

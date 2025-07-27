@@ -36,17 +36,10 @@ def debug_action_advisor():
         print("\n🔄 进行对比分析...")
         comparison_result = advisor.compare_stages(user_data, template_data)
         
-        print(f"整体评分: {comparison_result.get('overall_score', 0):.1f}")
         print(f"关键问题数量: {len(comparison_result.get('critical_issues', []))}")
         print(f"阶段对比数量: {len(comparison_result.get('stage_comparisons', []))}")
         
-        # 计算五维度评分
-        print("\n📊 计算五维度评分...")
-        dimension_scores = advisor.calculate_five_dimension_scores(comparison_result)
-        
-        print("五维度评分:")
-        for dimension, score in dimension_scores.items():
-            print(f"  {dimension}: {score:.1f}/100")
+        # 移除五维度评分计算（已删除该功能）
         
         # 生成完整报告
         print("\n📋 生成完整报告...")
@@ -54,21 +47,9 @@ def debug_action_advisor():
         
         print("\n📄 完整报告内容:")
         print(f"  analysis_timestamp: {comprehensive_report.get('analysis_timestamp', 'N/A')}")
-        print(f"  overall_score: {comprehensive_report.get('overall_score', 0):.1f}")
-        print(f"  performance_level: {comprehensive_report.get('performance_level', 'N/A')}")
+        # 移除总体评分和表现等级显示（已删除该功能）
         
-        # 检查dimension_scores是否在报告中
-        report_dimension_scores = comprehensive_report.get('dimension_scores', {})
-        print(f"\n📊 报告中的五维度评分 (数量: {len(report_dimension_scores)}):")
-        if report_dimension_scores:
-            for dimension, score in report_dimension_scores.items():
-                print(f"  {dimension}: {score:.1f}/100")
-        else:
-            print("  ❌ 报告中没有dimension_scores数据！")
-        
-        # 检查雷达图
-        radar_chart = comprehensive_report.get('radar_chart', '')
-        print(f"\n📈 雷达图数据: {'存在' if radar_chart else '不存在'} (长度: {len(radar_chart) if radar_chart else 0})")
+        # 移除五维度评分和雷达图检查（已删除这些功能）
         
         # 检查其他关键字段
         print(f"\n🔍 其他关键字段:")

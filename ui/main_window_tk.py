@@ -9,6 +9,7 @@ import numpy as np
 import sys
 from datetime import datetime
 import configparser
+from html.parser import HTMLParser
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,6 +18,60 @@ from modules.pose_detector import PoseDetector
 from modules.pose_analyzer import PoseAnalyzer
 from modules.json_converter import JsonConverter
 from modules.action_advisor import ActionAdvisor
+
+class MarkdownHTMLParser(HTMLParser):
+    """HTML解析器，用于将HTML渲染到tkinter Text组件"""
+    
+    def __init__(self, text_widget):
+        super().__init__()
+        self.text_widget = text_widget
+        self.tag_stack = []
+        self.in_list = False
+        self.list_level = 0
+        
+    def handle_starttag(self, tag, attrs):
+        if tag in ['h1', 'h2', 'h3']:
+            self.tag_stack.append(tag)
+        elif tag == 'strong' or tag == 'b':
+            self.tag_stack.append('bold')
+        elif tag == 'em' or tag == 'i':
+            self.tag_stack.append('italic')
+        elif tag == 'code':
+            self.tag_stack.append('code')
+        elif tag in ['ul', 'ol']:
+            self.in_list = True
+            self.list_level += 1
+            if self.text_widget.get("end-2c", "end-1c") != "\n":
+                self.text_widget.insert(tk.END, "\n")
+        elif tag == 'li':
+            if self.in_list:
+                # 添加适当的缩进
+                indent = "  " * (self.list_level - 1)
+                self.text_widget.insert(tk.END, f"{indent}• ", "list_bullet")
+            self.tag_stack.append('list_item')
+        elif tag == 'br':
+            self.text_widget.insert(tk.END, "\n")
+        elif tag in ['p', 'div']:
+            if self.text_widget.get("end-2c", "end-1c") != "\n":
+                self.text_widget.insert(tk.END, "\n")
+    
+    def handle_endtag(self, tag):
+        if tag in ['h1', 'h2', 'h3', 'strong', 'b', 'em', 'i', 'code', 'li']:
+            if self.tag_stack:
+                self.tag_stack.pop()
+        elif tag in ['ul', 'ol']:
+            self.in_list = False if self.list_level == 1 else True
+            self.list_level = max(0, self.list_level - 1)
+            self.text_widget.insert(tk.END, "\n")
+        if tag in ['p', 'div', 'li', 'h1', 'h2', 'h3']:
+            self.text_widget.insert(tk.END, "\n")
+    
+    def handle_data(self, data):
+        if self.tag_stack:
+            current_tag = self.tag_stack[-1]
+            self.text_widget.insert(tk.END, data, current_tag)
+        else:
+            self.text_widget.insert(tk.END, data, "content")
 
 class MainWindow:
     def __init__(self, root):
@@ -399,12 +454,23 @@ class MainWindow:
                 self.update_feedback_box("❌ 未找到标准模板文件")
                 return
             
-            # 使用生成的分析数据
-            if not self.last_json_path or not os.path.exists(self.last_json_path):
-                self.update_feedback_box("❌ 未找到用户分析数据")
+            # 查找staged用户数据文件
+            staged_user_file = None
+            if os.path.exists("staged_templates"):
+                # 查找最新的staged用户数据文件
+                staged_files = [f for f in os.listdir("staged_templates") 
+                              if f.startswith("staged_") and f.endswith(".json") 
+                              and "模板" not in f and "template" not in f.lower()]
+                if staged_files:
+                    # 按修改时间排序，获取最新的
+                    staged_files.sort(key=lambda x: os.path.getmtime(os.path.join("staged_templates", x)), reverse=True)
+                    staged_user_file = os.path.join("staged_templates", staged_files[0])
+            
+            if not staged_user_file or not os.path.exists(staged_user_file):
+                self.update_feedback_box("❌ 未找到阶段化用户数据文件，请先完成视频分析和转换")
                 return
             
-            self.update_feedback_box(f"📊 正在对比分析: {os.path.basename(self.last_json_path)}")
+            self.update_feedback_box(f"📊 正在对比分析: {os.path.basename(staged_user_file)}")
             
             # 清空流式显示区域
             self.streaming_text.config(state=tk.NORMAL)
@@ -420,31 +486,12 @@ class MainWindow:
             # 设置API密钥
             action_advisor.api_key = api_key
             comprehensive_report = action_advisor.generate_comprehensive_advice(
-                self.last_json_path, template_path
+                staged_user_file, template_path
             )
             
             # 显示分析结果
             self.update_feedback_box("\n🎯 智能分析结果:")
             self.update_feedback_box("=" * 50)
-            
-            # 显示总体评分
-            overall_score = comprehensive_report.get('overall_score', 0)
-            performance_level = comprehensive_report.get('performance_level', '未知')
-            self.update_feedback_box(f"总体评分: {overall_score:.1f}/100 ({performance_level})")
-            
-            # 显示维度评分
-            dimension_scores = comprehensive_report.get('dimension_scores', {})
-            # 维度名称映射（英文键名到中文名称）
-            dimension_names = {
-                "posture_stability": "姿态稳定性",
-                "timing_precision": "击球时机", 
-                "movement_fluency": "动作流畅性",
-                "power_transfer": "力量传递",
-                "technical_standard": "技术规范性"
-            }
-            for dimension, score in dimension_scores.items():
-                chinese_name = dimension_names.get(dimension, dimension)
-                self.update_feedback_box(f"{chinese_name}: {score:.1f}/100")
             
             # 保存分析报告
             self._save_analysis_report(comprehensive_report)
@@ -483,28 +530,7 @@ class MainWindow:
                 f.write(f"视频文件: {video_filename}\n")
                 f.write(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 
-                # 总体评分
-                overall_score = comprehensive_report.get('overall_score', 0)
-                performance_level = comprehensive_report.get('performance_level', '未知')
-                f.write(f"总体评分: {overall_score:.1f}/100 ({performance_level})\n\n")
-                
-                # 维度评分
-                dimension_scores = comprehensive_report.get('dimension_scores', {})
-                if dimension_scores:
-                    f.write("五维度评分:\n")
-                    f.write("-" * 20 + "\n")
-                    # 维度名称映射（英文键名到中文名称）
-                    dimension_names = {
-                        "posture_stability": "姿态稳定性",
-                        "timing_precision": "击球时机", 
-                        "movement_fluency": "动作流畅性",
-                        "power_transfer": "力量传递",
-                        "technical_standard": "技术规范性"
-                    }
-                    for dimension, score in dimension_scores.items():
-                        chinese_name = dimension_names.get(dimension, dimension)
-                        f.write(f"{chinese_name}: {score:.1f}/100\n")
-                    f.write("\n")
+
                 
                 # 详细建议
                 detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
@@ -645,61 +671,7 @@ class MainWindow:
         suggestions_text.tag_configure("code", font=('Consolas', 10), background='#f8f9fa', foreground='#e74c3c')
         suggestions_text.tag_configure("list_item", font=('Microsoft YaHei', 11), foreground='#2c3e50', lmargin1=20, lmargin2=20)
         
-        # 显示总体评分
-        overall_score = comprehensive_report.get('overall_score', 0)
-        performance_level = comprehensive_report.get('performance_level', '未知')
-        suggestions_text.insert(tk.END, f"🎯 总体评分: {overall_score:.1f}/100 ({performance_level})\n\n", "h2")
-        
-        # 显示维度评分
-        dimension_scores = comprehensive_report.get('dimension_scores', {})
-        if dimension_scores:
-            suggestions_text.insert(tk.END, "📊 五维度评分\n", "h2")
-            suggestions_text.insert(tk.END, "─" * 20 + "\n", "separator")
-            
-            # 维度名称映射（英文键名到中文名称）
-            dimension_names = {
-                "posture_stability": "姿态稳定性",
-                "timing_precision": "击球时机", 
-                "movement_fluency": "动作流畅性",
-                "power_transfer": "力量传递",
-                "technical_standard": "技术规范性"
-            }
-            
-            for dimension, score in dimension_scores.items():
-                chinese_name = dimension_names.get(dimension, dimension)
-                suggestions_text.insert(tk.END, f"{chinese_name}: {score:.1f}/100\n", "content")
-            suggestions_text.insert(tk.END, "\n", "separator")
-            
-            # 显示雷达图
-            radar_chart_base64 = comprehensive_report.get('radar_chart', '')
-            if radar_chart_base64:
-                try:
-                    # 创建雷达图显示区域
-                    radar_frame = tk.Frame(suggestions_frame, bg='#ffffff')
-                    radar_frame.pack(fill=tk.X, padx=15, pady=10)
-                    
-                    radar_label = tk.Label(radar_frame, text="📈 五维度雷达图", 
-                                          font=('Microsoft YaHei', 12, 'bold'), 
-                                          fg='#2980b9', bg='#ffffff')
-                    radar_label.pack(pady=(0, 10))
-                    
-                    # 解码并显示雷达图
-                    import base64
-                    from io import BytesIO
-                    from PIL import Image, ImageTk
-                    
-                    image_data = base64.b64decode(radar_chart_base64)
-                    image = Image.open(BytesIO(image_data))
-                    image = image.resize((400, 400), Image.Resampling.LANCZOS)
-                    
-                    radar_image = ImageTk.PhotoImage(image)
-                    radar_canvas = tk.Label(radar_frame, image=radar_image, bg='#ffffff')
-                    radar_canvas.image = radar_image  # 保持引用
-                    radar_canvas.pack()
-                    
-                except Exception as e:
-                    print(f"显示雷达图失败: {e}")
-                    suggestions_text.insert(tk.END, "⚠️ 雷达图生成失败\n\n", "content")
+
         
         # 显示详细建议
         detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
@@ -709,7 +681,7 @@ class MainWindow:
             for i, suggestion in enumerate(detailed_suggestions, 1):
                 suggestions_text.insert(tk.END, f"【建议 {i}】", "number")
                 suggestions_text.insert(tk.END, "\n")
-                self._render_markdown_content(suggestions_text, suggestion)
+                self._append_markdown_content(suggestions_text, suggestion)
                 suggestions_text.insert(tk.END, "\n\n", "separator")
                 if i < len(detailed_suggestions):
                     suggestions_text.insert(tk.END, "─" * 50 + "\n\n", "separator")
@@ -719,7 +691,7 @@ class MainWindow:
         if llm_advice:
             suggestions_text.insert(tk.END, "🤖 AI智能建议\n", "h2")
             suggestions_text.insert(tk.END, "─" * 20 + "\n", "separator")
-            self._render_markdown_content(suggestions_text, llm_advice)
+            self._append_markdown_content(suggestions_text, llm_advice)
             suggestions_text.insert(tk.END, "\n\n", "separator")
         
         suggestions_text.config(state=tk.DISABLED)
@@ -803,79 +775,136 @@ class MainWindow:
             window.attributes('-alpha', 1.0)
     
     def _render_markdown_content(self, text_widget, content):
-        """渲染Markdown内容到Text组件"""
+        """渲染Markdown内容到Text组件（改进版）"""
+        import re
+        
+        # 清空文本组件
+        text_widget.delete(1.0, tk.END)
+        
+        # 配置文本样式
+        self._configure_text_styles(text_widget)
+        
+        # 使用markdown库将markdown转换为HTML
+        try:
+            import markdown
+            html_content = markdown.markdown(content, extensions=['extra', 'codehilite'])
+        except:
+            # 如果markdown库不可用，使用简化版本
+            html_content = self._simple_markdown_to_html(content)
+        
+        # 解析HTML并渲染到Text组件
+        parser = MarkdownHTMLParser(text_widget)
+        parser.feed(html_content)
+    
+    def _append_markdown_content(self, text_widget, content):
+        """追加Markdown内容到Text组件（不清空现有内容）"""
+        import re
+        
+        # 配置文本样式（如果还没有配置）
+        self._configure_text_styles(text_widget)
+        
+        # 使用markdown库将markdown转换为HTML
+        try:
+            import markdown
+            html_content = markdown.markdown(content, extensions=['extra', 'codehilite'])
+        except:
+            # 如果markdown库不可用，使用简化版本
+            html_content = self._simple_markdown_to_html(content)
+        
+        # 解析HTML并渲染到Text组件
+        parser = MarkdownHTMLParser(text_widget)
+        parser.feed(html_content)
+    
+    def _configure_text_styles(self, text_widget):
+        """配置文本组件的样式"""
+        text_widget.tag_configure("h1", font=("Arial", 16, "bold"), foreground="#2c3e50")
+        text_widget.tag_configure("h2", font=("Arial", 14, "bold"), foreground="#34495e")
+        text_widget.tag_configure("h3", font=("Arial", 12, "bold"), foreground="#7f8c8d")
+        text_widget.tag_configure("bold", font=("Arial", 10, "bold"))
+        text_widget.tag_configure("italic", font=("Arial", 10, "italic"))
+        text_widget.tag_configure("code", font=("Courier", 9), background="#f8f9fa", foreground="#e74c3c")
+        text_widget.tag_configure("list_bullet", foreground="#3498db")
+        text_widget.tag_configure("content", font=("Arial", 10))
+    
+    def _simple_markdown_to_html(self, content):
+        """简化的markdown到HTML转换"""
         import re
         
         lines = content.split('\n')
+        html_lines = []
+        in_list = False
         
-        for line in lines:
+        for i, line in enumerate(lines):
+            original_line = line
             line = line.strip()
+            
             if not line:
-                text_widget.insert(tk.END, "\n")
+                if in_list:
+                    # 空行可能结束列表
+                    next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                    if not (next_line.startswith('- ') or next_line.startswith('* ') or re.match(r'^\d+\. ', next_line)):
+                        html_lines.append('</ul>')
+                        in_list = False
+                html_lines.append('<br>')
                 continue
             
             # 处理标题
             if line.startswith('### '):
-                text_widget.insert(tk.END, line[4:] + "\n", "h3")
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append(f'<h3>{line[4:]}</h3>')
             elif line.startswith('## '):
-                text_widget.insert(tk.END, line[3:] + "\n", "h2")
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append(f'<h2>{line[3:]}</h2>')
             elif line.startswith('# '):
-                text_widget.insert(tk.END, line[2:] + "\n", "h1")
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append(f'<h1>{line[2:]}</h1>')
             # 处理列表项
             elif line.startswith('- ') or line.startswith('* '):
-                text_widget.insert(tk.END, "• " + line[2:] + "\n", "list_item")
+                if not in_list:
+                    html_lines.append('<ul>')
+                    in_list = True
+                formatted_content = self._format_inline_html(line[2:])
+                html_lines.append(f'<li>{formatted_content}</li>')
             elif re.match(r'^\d+\. ', line):
-                text_widget.insert(tk.END, line + "\n", "list_item")
+                if not in_list:
+                    html_lines.append('<ol>')
+                    in_list = True
+                match = re.match(r'^\d+\. (.+)', line)
+                if match:
+                    formatted_content = self._format_inline_html(match.group(1))
+                    html_lines.append(f'<li>{formatted_content}</li>')
             else:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
                 # 处理行内格式
-                self._render_inline_formatting(text_widget, line)
-                text_widget.insert(tk.END, "\n")
+                formatted_line = self._format_inline_html(line)
+                html_lines.append(f'<p>{formatted_line}</p>')
+        
+        # 确保列表正确关闭
+        if in_list:
+            html_lines.append('</ul>')
+        
+        return '\n'.join(html_lines)
     
-    def _render_inline_formatting(self, text_widget, line):
-        """渲染行内格式（粗体、斜体、代码等）"""
+    def _format_inline_html(self, text):
+        """格式化行内HTML"""
         import re
         
-        # 按优先级处理：代码 -> 粗体 -> 斜体 -> 普通文本
-        remaining_text = line
+        # 处理粗体
+        text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+        # 处理斜体
+        text = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', text)
+        # 处理代码
+        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
         
-        while remaining_text:
-            # 查找下一个格式标记
-            code_match = re.search(r'`([^`]+)`', remaining_text)
-            bold_match = re.search(r'\*\*([^*]+)\*\*', remaining_text)
-            italic_match = re.search(r'\*([^*]+)\*', remaining_text)
-            
-            # 找到最早出现的格式标记
-            matches = []
-            if code_match:
-                matches.append((code_match.start(), 'code', code_match))
-            if bold_match:
-                matches.append((bold_match.start(), 'bold', bold_match))
-            if italic_match and (not bold_match or italic_match.start() < bold_match.start() or italic_match.end() > bold_match.end()):
-                matches.append((italic_match.start(), 'italic', italic_match))
-            
-            if not matches:
-                # 没有找到格式标记，插入剩余文本
-                text_widget.insert(tk.END, remaining_text, "content")
-                break
-            
-            # 按位置排序，处理最早的格式标记
-            matches.sort(key=lambda x: x[0])
-            pos, format_type, match = matches[0]
-            
-            # 插入格式标记前的普通文本
-            if pos > 0:
-                text_widget.insert(tk.END, remaining_text[:pos], "content")
-            
-            # 插入格式化文本
-            if format_type == 'code':
-                text_widget.insert(tk.END, match.group(1), "code")
-            elif format_type == 'bold':
-                text_widget.insert(tk.END, match.group(1), "bold")
-            elif format_type == 'italic':
-                text_widget.insert(tk.END, match.group(1), "italic")
-            
-            # 更新剩余文本
-            remaining_text = remaining_text[match.end():]
+        return text
     
     def _copy_report_content(self, comprehensive_report):
         """复制报告内容到剪贴板"""
@@ -884,29 +913,6 @@ class MainWindow:
             content += "=" * 50 + "\n"
             content += f"视频文件: {os.path.basename(self.video_path)}\n"
             content += f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            
-            # 总体评分
-            overall_score = comprehensive_report.get('overall_score', 0)
-            performance_level = comprehensive_report.get('performance_level', '未知')
-            content += f"总体评分: {overall_score:.1f}/100 ({performance_level})\n\n"
-            
-            # 维度评分
-            dimension_scores = comprehensive_report.get('dimension_scores', {})
-            if dimension_scores:
-                content += "五维度评分:\n"
-                content += "-" * 20 + "\n"
-                # 维度名称映射（英文键名到中文名称）
-                dimension_names = {
-                    "posture_stability": "姿态稳定性",
-                    "timing_precision": "击球时机", 
-                    "movement_fluency": "动作流畅性",
-                    "power_transfer": "力量传递",
-                    "technical_standard": "技术规范性"
-                }
-                for dimension, score in dimension_scores.items():
-                    chinese_name = dimension_names.get(dimension, dimension)
-                    content += f"{chinese_name}: {score:.1f}/100\n"
-                content += "\n"
             
             # 详细建议
             detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
@@ -946,29 +952,6 @@ class MainWindow:
                     f.write("=" * 50 + "\n")
                     f.write(f"视频文件: {os.path.basename(self.video_path)}\n")
                     f.write(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                    
-                    # 总体评分
-                    overall_score = comprehensive_report.get('overall_score', 0)
-                    performance_level = comprehensive_report.get('performance_level', '未知')
-                    f.write(f"总体评分: {overall_score:.1f}/100 ({performance_level})\n\n")
-                    
-                    # 维度评分
-                    dimension_scores = comprehensive_report.get('dimension_scores', {})
-                    if dimension_scores:
-                        f.write("五维度评分:\n")
-                        f.write("-" * 20 + "\n")
-                        # 维度名称映射（英文键名到中文名称）
-                        dimension_names = {
-                            "posture_stability": "姿态稳定性",
-                            "timing_precision": "击球时机", 
-                            "movement_fluency": "动作流畅性",
-                            "power_transfer": "力量传递",
-                            "technical_standard": "技术规范性"
-                        }
-                        for dimension, score in dimension_scores.items():
-                            chinese_name = dimension_names.get(dimension, dimension)
-                            f.write(f"{chinese_name}: {score:.1f}/100\n")
-                        f.write("\n")
                     
                     # 详细建议
                     detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
