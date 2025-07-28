@@ -7,3 +7,4 @@ mediapipe==0.10.7
 fastdtw==0.3.4
 scipy==1.11.1
 PyQt5==5.15.9
+markdown==3.8.2

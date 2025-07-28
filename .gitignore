@@ -1,0 +1,145 @@
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 分发/打包
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# 单元测试/覆盖率报告
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# 环境变量
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 项目特定文件
+config.ini
+config/
+data/user_videos/
+data/output/
+data/staged_templates/
+testvideo/
+logs/
+temp/
+
+# 机器学习模型文件
+models/
+*.pkl
+*.joblib
+*.h5
+*.pb
+
+# 视频文件
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+
+# 图片文件
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+
+# 文档文件（除了README）
+*.pdf
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+
+# 压缩文件
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# 其他临时文件
+*.tmp
+*.temp
+*.log
+*.bak
+*.orig
+
+# 特定的中文文档文件
+羽毛球动作视频拍摄要求文档.md
+羽毛球动作视频拍摄要求文档/
+
+# 脚本和批处理文件
+scripts/
+*.bat
+*.sh
+
+# 安装和设置文件
+setup_environment.*
+start.bat
+requirements.txt
+
+# 工具和实用程序
+utils/
+
+# 文档目录
+docs/

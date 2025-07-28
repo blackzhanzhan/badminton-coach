@@ -9,14 +9,68 @@ import numpy as np
 import sys
 from datetime import datetime
 import configparser
+from html.parser import HTMLParser
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.pose_detector import PoseDetector
-from modules.pose_analyzer import PoseAnalyzer
-from modules.json_converter import JsonConverter
-from modules.action_advisor import ActionAdvisor
+from modules.hybrid_action_advisor import HybridActionAdvisor
+from modules.action_quality_predictor import ActionQualityPredictor
+from modules.online_learning_manager import OnlineLearningManager
+
+class MarkdownHTMLParser(HTMLParser):
+    """HTML解析器，用于将HTML渲染到tkinter Text组件"""
+    
+    def __init__(self, text_widget):
+        super().__init__()
+        self.text_widget = text_widget
+        self.tag_stack = []
+        self.in_list = False
+        self.list_level = 0
+        
+    def handle_starttag(self, tag, attrs):
+        if tag in ['h1', 'h2', 'h3']:
+            self.tag_stack.append(tag)
+        elif tag == 'strong' or tag == 'b':
+            self.tag_stack.append('bold')
+        elif tag == 'em' or tag == 'i':
+            self.tag_stack.append('italic')
+        elif tag == 'code':
+            self.tag_stack.append('code')
+        elif tag in ['ul', 'ol']:
+            self.in_list = True
+            self.list_level += 1
+            if self.text_widget.get("end-2c", "end-1c") != "\n":
+                self.text_widget.insert(tk.END, "\n")
+        elif tag == 'li':
+            if self.in_list:
+                # 添加适当的缩进
+                indent = "  " * (self.list_level - 1)
+                self.text_widget.insert(tk.END, f"{indent}• ", "list_bullet")
+            self.tag_stack.append('list_item')
+        elif tag == 'br':
+            self.text_widget.insert(tk.END, "\n")
+        elif tag in ['p', 'div']:
+            if self.text_widget.get("end-2c", "end-1c") != "\n":
+                self.text_widget.insert(tk.END, "\n")
+    
+    def handle_endtag(self, tag):
+        if tag in ['h1', 'h2', 'h3', 'strong', 'b', 'em', 'i', 'code', 'li']:
+            if self.tag_stack:
+                self.tag_stack.pop()
+        elif tag in ['ul', 'ol']:
+            self.in_list = False if self.list_level == 1 else True
+            self.list_level = max(0, self.list_level - 1)
+            self.text_widget.insert(tk.END, "\n")
+        if tag in ['p', 'div', 'li', 'h1', 'h2', 'h3']:
+            self.text_widget.insert(tk.END, "\n")
+    
+    def handle_data(self, data):
+        if self.tag_stack:
+            current_tag = self.tag_stack[-1]
+            self.text_widget.insert(tk.END, data, current_tag)
+        else:
+            self.text_widget.insert(tk.END, data, "content")
 
 class MainWindow:
     def __init__(self, root):
@@ -25,9 +79,8 @@ class MainWindow:
         self.root.title("羽毛球接球姿态分析与教练系统")
         self.root.geometry("1200x800")
         
-        # 将检测器和分析器的初始化推迟到 start_detection
-        self.pose_detector = None
-        self.pose_analyzer = None
+        # 机器学习模块初始化
+        # 检测器和分析器功能已集成到HybridActionAdvisor中
         
         # 视频相关变量
         self.cap = None
@@ -51,6 +104,15 @@ class MainWindow:
         
         # 新增变量用于保存最近分析的JSON文件路径
         self.last_json_path = None
+        
+        # 混合动作顾问相关
+        self.hybrid_advisor = None
+        self.ml_enabled = True
+        self.current_analysis_result = None
+        
+        # 用户反馈相关
+        self.feedback_window = None
+        self.user_rating = None
         
     def init_ui(self):
         """初始化用户界面"""
@@ -79,6 +141,38 @@ class MainWindow:
         # 保存API密钥按钮
         self.save_api_button = ttk.Button(api_inner_frame, text="保存密钥", command=self.save_api_key)
         self.save_api_button.pack(side=tk.LEFT, padx=5)
+        
+        # 机器学习配置区域
+        ml_frame = ttk.LabelFrame(main_frame, text="🤖 机器学习配置")
+        ml_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ml_inner_frame = ttk.Frame(ml_frame)
+        ml_inner_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # ML启用开关
+        self.ml_enabled_var = tk.BooleanVar(value=True)
+        self.ml_check = ttk.Checkbutton(ml_inner_frame, text="启用机器学习增强分析", 
+                                       variable=self.ml_enabled_var,
+                                       command=self.toggle_ml_mode)
+        self.ml_check.pack(side=tk.LEFT, padx=(0, 20))
+        
+        # ML权重配置
+        ttk.Label(ml_inner_frame, text="ML权重:").pack(side=tk.LEFT, padx=(0, 5))
+        self.ml_weight_var = tk.DoubleVar(value=0.4)
+        self.ml_weight_scale = ttk.Scale(ml_inner_frame, from_=0.0, to=1.0, 
+                                        variable=self.ml_weight_var, 
+                                        orient=tk.HORIZONTAL, length=100)
+        self.ml_weight_scale.pack(side=tk.LEFT, padx=5)
+        
+        self.ml_weight_label = ttk.Label(ml_inner_frame, text="0.4")
+        self.ml_weight_label.pack(side=tk.LEFT, padx=(5, 20))
+        
+        # 绑定权重变化事件
+        self.ml_weight_var.trace('w', self.update_ml_weight_label)
+        
+        # 模型状态显示
+        self.ml_status_label = ttk.Label(ml_inner_frame, text="模型状态: 未初始化", foreground="gray")
+        self.ml_status_label.pack(side=tk.LEFT, padx=10)
         
         # 视频处理区域
         video_frame = ttk.LabelFrame(main_frame, text="📹 视频处理")
@@ -171,6 +265,18 @@ class MainWindow:
         
         self.start_button = ttk.Button(button_frame, text="⏸️ 停止处理", command=self.stop_detection, state="disabled")
         self.start_button.pack(side=tk.LEFT, padx=5)
+        
+        # 用户反馈按钮
+        self.feedback_button = ttk.Button(button_frame, text="📝 提供反馈", command=self.show_feedback_dialog, state="disabled")
+        self.feedback_button.pack(side=tk.LEFT, padx=5)
+        
+        # 模型重训练按钮
+        self.retrain_button = ttk.Button(button_frame, text="🔄 重训练模型", command=self.retrain_models, state="disabled")
+        self.retrain_button.pack(side=tk.LEFT, padx=5)
+        
+        # 系统状态按钮
+        self.status_button = ttk.Button(button_frame, text="📊 系统状态", command=self.show_system_status, state="disabled")
+        self.status_button.pack(side=tk.LEFT, padx=5)
         
         # 初始化变量
         self.api_key_saved = False
@@ -277,6 +383,38 @@ class MainWindow:
         
         if self.pose_detector.initialization_error:
             raise Exception(self.pose_detector.initialization_error)
+        
+        # 初始化传统动作顾问
+        self.action_advisor = ActionAdvisor(
+            status_callback=self.update_llm_status,
+            streaming_callback=self.update_streaming_content
+        )
+        
+        # 初始化混合动作顾问
+        if self.ml_enabled_var.get():
+            try:
+                self.hybrid_advisor = HybridActionAdvisor(
+                    templates_dir="data/staged_templates",
+                    staged_dir="data/staged_templates",
+                    model_dir="models",
+                    learning_data_dir="data/feedback",
+                    enable_ml=True,
+                    ml_weight=self.ml_weight_var.get(),
+                    rule_weight=1.0 - self.ml_weight_var.get(),
+                    callback_progress=self.update_progress,
+                    callback_complete=self.update_feedback_box
+                )
+                self.ml_status_label.config(text="模型状态: 已初始化", foreground="green")
+                # 启用相关按钮
+                self.feedback_button.config(state="normal")
+                self.retrain_button.config(state="normal")
+                self.status_button.config(state="normal")
+                self.root.after(0, lambda: self.update_feedback_box("✅ 混合ML模型初始化完成"))
+            except Exception as e:
+                self.root.after(0, lambda: self.update_feedback_box(f"⚠️ ML模型初始化失败，使用传统模式: {str(e)}"))
+                self.ml_enabled = False
+                self.ml_enabled_var.set(False)
+                self.ml_status_label.config(text="模型状态: 初始化失败", foreground="red")
         
         self.root.after(0, lambda: self.update_feedback_box("✅ 模型初始化完成"))
     
@@ -394,17 +532,29 @@ class MainWindow:
             os.environ['VOLCENGINE_API_KEY'] = api_key
             
             # 查找标准模板文件
-            template_path = "staged_templates/击球动作模板.json"
+            template_path = "data/staged_templates/击球动作模板.json"
             if not os.path.exists(template_path):
                 self.update_feedback_box("❌ 未找到标准模板文件")
                 return
             
-            # 使用生成的分析数据
-            if not self.last_json_path or not os.path.exists(self.last_json_path):
-                self.update_feedback_box("❌ 未找到用户分析数据")
+            # 查找staged用户数据文件
+            staged_user_file = None
+            staged_dir = "data/staged_templates"
+            if os.path.exists(staged_dir):
+                # 查找最新的staged用户数据文件
+                staged_files = [f for f in os.listdir(staged_dir) 
+                              if f.startswith("staged_") and f.endswith(".json") 
+                              and "模板" not in f and "template" not in f.lower()]
+                if staged_files:
+                    # 按修改时间排序，获取最新的
+                    staged_files.sort(key=lambda x: os.path.getmtime(os.path.join(staged_dir, x)), reverse=True)
+                    staged_user_file = os.path.join(staged_dir, staged_files[0])
+            
+            if not staged_user_file or not os.path.exists(staged_user_file):
+                self.update_feedback_box("❌ 未找到阶段化用户数据文件，请先完成视频分析和转换")
                 return
             
-            self.update_feedback_box(f"📊 正在对比分析: {os.path.basename(self.last_json_path)}")
+            self.update_feedback_box(f"📊 正在对比分析: {os.path.basename(staged_user_file)}")
             
             # 清空流式显示区域
             self.streaming_text.config(state=tk.NORMAL)
@@ -412,39 +562,29 @@ class MainWindow:
             self.streaming_text.insert(tk.END, "🤖 AI教练开始分析...\n\n")
             self.streaming_text.config(state=tk.DISABLED)
             
-            # 使用新的ActionAdvisor进行智能分析（传入状态回调和流式回调函数）
-            action_advisor = ActionAdvisor(
-                status_callback=self.update_llm_status,
-                streaming_callback=self.update_streaming_content
-            )
-            # 设置API密钥
-            action_advisor.api_key = api_key
-            comprehensive_report = action_advisor.generate_comprehensive_advice(
-                self.last_json_path, template_path
-            )
+            # 使用混合动作顾问进行智能分析
+            if hasattr(self, 'hybrid_advisor') and self.hybrid_advisor and self.ml_enabled_var.get():
+                # 使用混合ML分析
+                self.update_feedback_box("🤖 使用混合ML模式进行分析...")
+                comprehensive_report = self.hybrid_advisor.analyze_action(
+                    staged_user_file, 
+                    template_path
+                )
+                # 保存当前分析结果用于反馈收集
+                self.current_analysis_result = comprehensive_report
+            else:
+                # 使用传统分析
+                self.update_feedback_box("📊 使用传统模式进行分析...")
+                # 设置API密钥
+                self.action_advisor.api_key = api_key
+                comprehensive_report = self.action_advisor.generate_comprehensive_advice(
+                    staged_user_file, template_path
+                )
+                self.current_analysis_result = comprehensive_report
             
             # 显示分析结果
             self.update_feedback_box("\n🎯 智能分析结果:")
             self.update_feedback_box("=" * 50)
-            
-            # 显示总体评分
-            overall_score = comprehensive_report.get('overall_score', 0)
-            performance_level = comprehensive_report.get('performance_level', '未知')
-            self.update_feedback_box(f"总体评分: {overall_score:.1f}/100 ({performance_level})")
-            
-            # 显示维度评分
-            dimension_scores = comprehensive_report.get('dimension_scores', {})
-            # 维度名称映射（英文键名到中文名称）
-            dimension_names = {
-                "posture_stability": "姿态稳定性",
-                "timing_precision": "击球时机", 
-                "movement_fluency": "动作流畅性",
-                "power_transfer": "力量传递",
-                "technical_standard": "技术规范性"
-            }
-            for dimension, score in dimension_scores.items():
-                chinese_name = dimension_names.get(dimension, dimension)
-                self.update_feedback_box(f"{chinese_name}: {score:.1f}/100")
             
             # 保存分析报告
             self._save_analysis_report(comprehensive_report)
@@ -483,28 +623,7 @@ class MainWindow:
                 f.write(f"视频文件: {video_filename}\n")
                 f.write(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 
-                # 总体评分
-                overall_score = comprehensive_report.get('overall_score', 0)
-                performance_level = comprehensive_report.get('performance_level', '未知')
-                f.write(f"总体评分: {overall_score:.1f}/100 ({performance_level})\n\n")
-                
-                # 维度评分
-                dimension_scores = comprehensive_report.get('dimension_scores', {})
-                if dimension_scores:
-                    f.write("五维度评分:\n")
-                    f.write("-" * 20 + "\n")
-                    # 维度名称映射（英文键名到中文名称）
-                    dimension_names = {
-                        "posture_stability": "姿态稳定性",
-                        "timing_precision": "击球时机", 
-                        "movement_fluency": "动作流畅性",
-                        "power_transfer": "力量传递",
-                        "technical_standard": "技术规范性"
-                    }
-                    for dimension, score in dimension_scores.items():
-                        chinese_name = dimension_names.get(dimension, dimension)
-                        f.write(f"{chinese_name}: {score:.1f}/100\n")
-                    f.write("\n")
+
                 
                 # 详细建议
                 detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
@@ -645,61 +764,7 @@ class MainWindow:
         suggestions_text.tag_configure("code", font=('Consolas', 10), background='#f8f9fa', foreground='#e74c3c')
         suggestions_text.tag_configure("list_item", font=('Microsoft YaHei', 11), foreground='#2c3e50', lmargin1=20, lmargin2=20)
         
-        # 显示总体评分
-        overall_score = comprehensive_report.get('overall_score', 0)
-        performance_level = comprehensive_report.get('performance_level', '未知')
-        suggestions_text.insert(tk.END, f"🎯 总体评分: {overall_score:.1f}/100 ({performance_level})\n\n", "h2")
-        
-        # 显示维度评分
-        dimension_scores = comprehensive_report.get('dimension_scores', {})
-        if dimension_scores:
-            suggestions_text.insert(tk.END, "📊 五维度评分\n", "h2")
-            suggestions_text.insert(tk.END, "─" * 20 + "\n", "separator")
-            
-            # 维度名称映射（英文键名到中文名称）
-            dimension_names = {
-                "posture_stability": "姿态稳定性",
-                "timing_precision": "击球时机", 
-                "movement_fluency": "动作流畅性",
-                "power_transfer": "力量传递",
-                "technical_standard": "技术规范性"
-            }
-            
-            for dimension, score in dimension_scores.items():
-                chinese_name = dimension_names.get(dimension, dimension)
-                suggestions_text.insert(tk.END, f"{chinese_name}: {score:.1f}/100\n", "content")
-            suggestions_text.insert(tk.END, "\n", "separator")
-            
-            # 显示雷达图
-            radar_chart_base64 = comprehensive_report.get('radar_chart', '')
-            if radar_chart_base64:
-                try:
-                    # 创建雷达图显示区域
-                    radar_frame = tk.Frame(suggestions_frame, bg='#ffffff')
-                    radar_frame.pack(fill=tk.X, padx=15, pady=10)
-                    
-                    radar_label = tk.Label(radar_frame, text="📈 五维度雷达图", 
-                                          font=('Microsoft YaHei', 12, 'bold'), 
-                                          fg='#2980b9', bg='#ffffff')
-                    radar_label.pack(pady=(0, 10))
-                    
-                    # 解码并显示雷达图
-                    import base64
-                    from io import BytesIO
-                    from PIL import Image, ImageTk
-                    
-                    image_data = base64.b64decode(radar_chart_base64)
-                    image = Image.open(BytesIO(image_data))
-                    image = image.resize((400, 400), Image.Resampling.LANCZOS)
-                    
-                    radar_image = ImageTk.PhotoImage(image)
-                    radar_canvas = tk.Label(radar_frame, image=radar_image, bg='#ffffff')
-                    radar_canvas.image = radar_image  # 保持引用
-                    radar_canvas.pack()
-                    
-                except Exception as e:
-                    print(f"显示雷达图失败: {e}")
-                    suggestions_text.insert(tk.END, "⚠️ 雷达图生成失败\n\n", "content")
+
         
         # 显示详细建议
         detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
@@ -709,7 +774,7 @@ class MainWindow:
             for i, suggestion in enumerate(detailed_suggestions, 1):
                 suggestions_text.insert(tk.END, f"【建议 {i}】", "number")
                 suggestions_text.insert(tk.END, "\n")
-                self._render_markdown_content(suggestions_text, suggestion)
+                self._append_markdown_content(suggestions_text, suggestion)
                 suggestions_text.insert(tk.END, "\n\n", "separator")
                 if i < len(detailed_suggestions):
                     suggestions_text.insert(tk.END, "─" * 50 + "\n\n", "separator")
@@ -719,7 +784,7 @@ class MainWindow:
         if llm_advice:
             suggestions_text.insert(tk.END, "🤖 AI智能建议\n", "h2")
             suggestions_text.insert(tk.END, "─" * 20 + "\n", "separator")
-            self._render_markdown_content(suggestions_text, llm_advice)
+            self._append_markdown_content(suggestions_text, llm_advice)
             suggestions_text.insert(tk.END, "\n\n", "separator")
         
         suggestions_text.config(state=tk.DISABLED)
@@ -803,79 +868,136 @@ class MainWindow:
             window.attributes('-alpha', 1.0)
     
     def _render_markdown_content(self, text_widget, content):
-        """渲染Markdown内容到Text组件"""
+        """渲染Markdown内容到Text组件（改进版）"""
+        import re
+        
+        # 清空文本组件
+        text_widget.delete(1.0, tk.END)
+        
+        # 配置文本样式
+        self._configure_text_styles(text_widget)
+        
+        # 使用markdown库将markdown转换为HTML
+        try:
+            import markdown
+            html_content = markdown.markdown(content, extensions=['extra', 'codehilite'])
+        except:
+            # 如果markdown库不可用，使用简化版本
+            html_content = self._simple_markdown_to_html(content)
+        
+        # 解析HTML并渲染到Text组件
+        parser = MarkdownHTMLParser(text_widget)
+        parser.feed(html_content)
+    
+    def _append_markdown_content(self, text_widget, content):
+        """追加Markdown内容到Text组件（不清空现有内容）"""
+        import re
+        
+        # 配置文本样式（如果还没有配置）
+        self._configure_text_styles(text_widget)
+        
+        # 使用markdown库将markdown转换为HTML
+        try:
+            import markdown
+            html_content = markdown.markdown(content, extensions=['extra', 'codehilite'])
+        except:
+            # 如果markdown库不可用，使用简化版本
+            html_content = self._simple_markdown_to_html(content)
+        
+        # 解析HTML并渲染到Text组件
+        parser = MarkdownHTMLParser(text_widget)
+        parser.feed(html_content)
+    
+    def _configure_text_styles(self, text_widget):
+        """配置文本组件的样式"""
+        text_widget.tag_configure("h1", font=("Arial", 16, "bold"), foreground="#2c3e50")
+        text_widget.tag_configure("h2", font=("Arial", 14, "bold"), foreground="#34495e")
+        text_widget.tag_configure("h3", font=("Arial", 12, "bold"), foreground="#7f8c8d")
+        text_widget.tag_configure("bold", font=("Arial", 10, "bold"))
+        text_widget.tag_configure("italic", font=("Arial", 10, "italic"))
+        text_widget.tag_configure("code", font=("Courier", 9), background="#f8f9fa", foreground="#e74c3c")
+        text_widget.tag_configure("list_bullet", foreground="#3498db")
+        text_widget.tag_configure("content", font=("Arial", 10))
+    
+    def _simple_markdown_to_html(self, content):
+        """简化的markdown到HTML转换"""
         import re
         
         lines = content.split('\n')
+        html_lines = []
+        in_list = False
         
-        for line in lines:
+        for i, line in enumerate(lines):
+            original_line = line
             line = line.strip()
+            
             if not line:
-                text_widget.insert(tk.END, "\n")
+                if in_list:
+                    # 空行可能结束列表
+                    next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                    if not (next_line.startswith('- ') or next_line.startswith('* ') or re.match(r'^\d+\. ', next_line)):
+                        html_lines.append('</ul>')
+                        in_list = False
+                html_lines.append('<br>')
                 continue
             
             # 处理标题
             if line.startswith('### '):
-                text_widget.insert(tk.END, line[4:] + "\n", "h3")
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append(f'<h3>{line[4:]}</h3>')
             elif line.startswith('## '):
-                text_widget.insert(tk.END, line[3:] + "\n", "h2")
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append(f'<h2>{line[3:]}</h2>')
             elif line.startswith('# '):
-                text_widget.insert(tk.END, line[2:] + "\n", "h1")
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append(f'<h1>{line[2:]}</h1>')
             # 处理列表项
             elif line.startswith('- ') or line.startswith('* '):
-                text_widget.insert(tk.END, "• " + line[2:] + "\n", "list_item")
+                if not in_list:
+                    html_lines.append('<ul>')
+                    in_list = True
+                formatted_content = self._format_inline_html(line[2:])
+                html_lines.append(f'<li>{formatted_content}</li>')
             elif re.match(r'^\d+\. ', line):
-                text_widget.insert(tk.END, line + "\n", "list_item")
+                if not in_list:
+                    html_lines.append('<ol>')
+                    in_list = True
+                match = re.match(r'^\d+\. (.+)', line)
+                if match:
+                    formatted_content = self._format_inline_html(match.group(1))
+                    html_lines.append(f'<li>{formatted_content}</li>')
             else:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
                 # 处理行内格式
-                self._render_inline_formatting(text_widget, line)
-                text_widget.insert(tk.END, "\n")
+                formatted_line = self._format_inline_html(line)
+                html_lines.append(f'<p>{formatted_line}</p>')
+        
+        # 确保列表正确关闭
+        if in_list:
+            html_lines.append('</ul>')
+        
+        return '\n'.join(html_lines)
     
-    def _render_inline_formatting(self, text_widget, line):
-        """渲染行内格式（粗体、斜体、代码等）"""
+    def _format_inline_html(self, text):
+        """格式化行内HTML"""
         import re
         
-        # 按优先级处理：代码 -> 粗体 -> 斜体 -> 普通文本
-        remaining_text = line
+        # 处理粗体
+        text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+        # 处理斜体
+        text = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', text)
+        # 处理代码
+        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
         
-        while remaining_text:
-            # 查找下一个格式标记
-            code_match = re.search(r'`([^`]+)`', remaining_text)
-            bold_match = re.search(r'\*\*([^*]+)\*\*', remaining_text)
-            italic_match = re.search(r'\*([^*]+)\*', remaining_text)
-            
-            # 找到最早出现的格式标记
-            matches = []
-            if code_match:
-                matches.append((code_match.start(), 'code', code_match))
-            if bold_match:
-                matches.append((bold_match.start(), 'bold', bold_match))
-            if italic_match and (not bold_match or italic_match.start() < bold_match.start() or italic_match.end() > bold_match.end()):
-                matches.append((italic_match.start(), 'italic', italic_match))
-            
-            if not matches:
-                # 没有找到格式标记，插入剩余文本
-                text_widget.insert(tk.END, remaining_text, "content")
-                break
-            
-            # 按位置排序，处理最早的格式标记
-            matches.sort(key=lambda x: x[0])
-            pos, format_type, match = matches[0]
-            
-            # 插入格式标记前的普通文本
-            if pos > 0:
-                text_widget.insert(tk.END, remaining_text[:pos], "content")
-            
-            # 插入格式化文本
-            if format_type == 'code':
-                text_widget.insert(tk.END, match.group(1), "code")
-            elif format_type == 'bold':
-                text_widget.insert(tk.END, match.group(1), "bold")
-            elif format_type == 'italic':
-                text_widget.insert(tk.END, match.group(1), "italic")
-            
-            # 更新剩余文本
-            remaining_text = remaining_text[match.end():]
+        return text
     
     def _copy_report_content(self, comprehensive_report):
         """复制报告内容到剪贴板"""
@@ -884,29 +1006,6 @@ class MainWindow:
             content += "=" * 50 + "\n"
             content += f"视频文件: {os.path.basename(self.video_path)}\n"
             content += f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            
-            # 总体评分
-            overall_score = comprehensive_report.get('overall_score', 0)
-            performance_level = comprehensive_report.get('performance_level', '未知')
-            content += f"总体评分: {overall_score:.1f}/100 ({performance_level})\n\n"
-            
-            # 维度评分
-            dimension_scores = comprehensive_report.get('dimension_scores', {})
-            if dimension_scores:
-                content += "五维度评分:\n"
-                content += "-" * 20 + "\n"
-                # 维度名称映射（英文键名到中文名称）
-                dimension_names = {
-                    "posture_stability": "姿态稳定性",
-                    "timing_precision": "击球时机", 
-                    "movement_fluency": "动作流畅性",
-                    "power_transfer": "力量传递",
-                    "technical_standard": "技术规范性"
-                }
-                for dimension, score in dimension_scores.items():
-                    chinese_name = dimension_names.get(dimension, dimension)
-                    content += f"{chinese_name}: {score:.1f}/100\n"
-                content += "\n"
             
             # 详细建议
             detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
@@ -947,29 +1046,6 @@ class MainWindow:
                     f.write(f"视频文件: {os.path.basename(self.video_path)}\n")
                     f.write(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                     
-                    # 总体评分
-                    overall_score = comprehensive_report.get('overall_score', 0)
-                    performance_level = comprehensive_report.get('performance_level', '未知')
-                    f.write(f"总体评分: {overall_score:.1f}/100 ({performance_level})\n\n")
-                    
-                    # 维度评分
-                    dimension_scores = comprehensive_report.get('dimension_scores', {})
-                    if dimension_scores:
-                        f.write("五维度评分:\n")
-                        f.write("-" * 20 + "\n")
-                        # 维度名称映射（英文键名到中文名称）
-                        dimension_names = {
-                            "posture_stability": "姿态稳定性",
-                            "timing_precision": "击球时机", 
-                            "movement_fluency": "动作流畅性",
-                            "power_transfer": "力量传递",
-                            "technical_standard": "技术规范性"
-                        }
-                        for dimension, score in dimension_scores.items():
-                            chinese_name = dimension_names.get(dimension, dimension)
-                            f.write(f"{chinese_name}: {score:.1f}/100\n")
-                        f.write("\n")
-                    
                     # 详细建议
                     detailed_suggestions = comprehensive_report.get('detailed_suggestions', [])
                     if detailed_suggestions:
@@ -1008,10 +1084,12 @@ class MainWindow:
         self.update_feedback_box(f"  - 原始分析数据: {os.path.basename(self.last_json_path)}")
         
         # 查找staged文件
-        staged_files = [f for f in os.listdir("staged_templates") if f.endswith(".json") and "staged_" in f]
-        if staged_files:
-            latest_staged = max(staged_files, key=lambda x: os.path.getmtime(os.path.join("staged_templates", x)))
-            self.update_feedback_box(f"  - 阶段化数据: {latest_staged}")
+        staged_dir = "data/staged_templates"
+        if os.path.exists(staged_dir):
+            staged_files = [f for f in os.listdir(staged_dir) if f.endswith(".json") and "staged_" in f]
+            if staged_files:
+                latest_staged = max(staged_files, key=lambda x: os.path.getmtime(os.path.join(staged_dir, x)))
+                self.update_feedback_box(f"  - 阶段化数据: {latest_staged}")
         
         # 自动进行智能分析
         self.update_feedback_box("\n🤖 开始智能分析...")
@@ -1121,3 +1199,218 @@ class MainWindow:
             self.api_key_entry.config(show="")
         else:
             self.api_key_entry.config(show="*")
+    
+    def toggle_ml_mode(self):
+        """切换机器学习模式"""
+        self.ml_enabled = self.ml_enabled_var.get()
+        if self.ml_enabled:
+            self.ml_status_label.config(text="模型状态: 启用", foreground="green")
+        else:
+            self.ml_status_label.config(text="模型状态: 禁用", foreground="gray")
+            # 禁用相关按钮
+            self.feedback_button.config(state="disabled")
+            self.retrain_button.config(state="disabled")
+            self.status_button.config(state="disabled")
+    
+    def update_ml_weight_label(self, *args):
+        """更新ML权重标签"""
+        weight = self.ml_weight_var.get()
+        self.ml_weight_label.config(text=f"{weight:.1f}")
+    
+    def show_feedback_dialog(self):
+        """显示用户反馈对话框"""
+        if not self.current_analysis_result:
+            messagebox.showwarning("提示", "请先完成一次分析后再提供反馈")
+            return
+        
+        # 创建反馈窗口
+        feedback_window = tk.Toplevel(self.root)
+        feedback_window.title("📝 用户反馈")
+        feedback_window.geometry("500x400")
+        feedback_window.resizable(False, False)
+        feedback_window.transient(self.root)
+        feedback_window.grab_set()
+        
+        # 居中显示
+        feedback_window.update_idletasks()
+        x = (feedback_window.winfo_screenwidth() // 2) - (500 // 2)
+        y = (feedback_window.winfo_screenheight() // 2) - (400 // 2)
+        feedback_window.geometry(f"500x400+{x}+{y}")
+        
+        main_frame = ttk.Frame(feedback_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # 标题
+        title_label = ttk.Label(main_frame, text="请为本次分析提供反馈", 
+                               font=('Microsoft YaHei', 14, 'bold'))
+        title_label.pack(pady=(0, 20))
+        
+        # 评分区域
+        rating_frame = ttk.LabelFrame(main_frame, text="分析质量评分 (1-5分)")
+        rating_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        rating_var = tk.IntVar(value=3)
+        rating_inner = ttk.Frame(rating_frame)
+        rating_inner.pack(fill=tk.X, padx=10, pady=10)
+        
+        for i in range(1, 6):
+            ttk.Radiobutton(rating_inner, text=f"{i}分", variable=rating_var, 
+                           value=i).pack(side=tk.LEFT, padx=10)
+        
+        # 满意度区域
+        satisfaction_frame = ttk.LabelFrame(main_frame, text="整体满意度")
+        satisfaction_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        satisfaction_var = tk.StringVar(value="满意")
+        satisfaction_inner = ttk.Frame(satisfaction_frame)
+        satisfaction_inner.pack(fill=tk.X, padx=10, pady=10)
+        
+        for option in ["非常满意", "满意", "一般", "不满意", "非常不满意"]:
+            ttk.Radiobutton(satisfaction_inner, text=option, variable=satisfaction_var, 
+                           value=option).pack(side=tk.LEFT, padx=5)
+        
+        # 评论区域
+        comment_frame = ttk.LabelFrame(main_frame, text="详细评论 (可选)")
+        comment_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        
+        comment_text = tk.Text(comment_frame, wrap=tk.WORD, height=6,
+                              font=('Microsoft YaHei', 10))
+        comment_scrollbar = ttk.Scrollbar(comment_frame, orient=tk.VERTICAL, 
+                                         command=comment_text.yview)
+        comment_text.configure(yscrollcommand=comment_scrollbar.set)
+        
+        comment_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
+        comment_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
+        
+        # 按钮区域
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X)
+        
+        def submit_feedback():
+            try:
+                if hasattr(self, 'hybrid_advisor') and self.hybrid_advisor:
+                    feedback_data = {
+                        'user_rating': rating_var.get(),
+                        'satisfaction': satisfaction_var.get(),
+                        'comments': comment_text.get(1.0, tk.END).strip()
+                    }
+                    
+                    self.hybrid_advisor.collect_user_feedback(
+                        session_data=self.current_analysis_result,
+                        **feedback_data
+                    )
+                    
+                    messagebox.showinfo("成功", "感谢您的反馈！这将帮助我们改进分析质量。")
+                    feedback_window.destroy()
+                else:
+                    messagebox.showwarning("提示", "混合分析模式未启用，无法收集反馈")
+            except Exception as e:
+                messagebox.showerror("错误", f"提交反馈失败: {str(e)}")
+        
+        ttk.Button(button_frame, text="提交反馈", command=submit_feedback).pack(side=tk.RIGHT, padx=(10, 0))
+        ttk.Button(button_frame, text="取消", command=feedback_window.destroy).pack(side=tk.RIGHT)
+    
+    def retrain_models(self):
+        """重训练模型"""
+        if not hasattr(self, 'hybrid_advisor') or not self.hybrid_advisor:
+            messagebox.showwarning("提示", "混合分析模式未启用")
+            return
+        
+        result = messagebox.askyesno("确认", "重训练模型可能需要一些时间，是否继续？")
+        if result:
+            try:
+                self.update_feedback_box("🔄 开始重训练模型...")
+                success = self.hybrid_advisor.retrain_models()
+                if success:
+                    self.update_feedback_box("✅ 模型重训练完成")
+                    messagebox.showinfo("成功", "模型重训练完成！")
+                else:
+                    self.update_feedback_box("⚠️ 模型重训练失败")
+                    messagebox.showwarning("警告", "模型重训练失败，请检查反馈数据是否充足")
+            except Exception as e:
+                error_msg = f"重训练失败: {str(e)}"
+                self.update_feedback_box(f"❌ {error_msg}")
+                messagebox.showerror("错误", error_msg)
+    
+    def show_system_status(self):
+        """显示系统状态"""
+        if not hasattr(self, 'hybrid_advisor') or not self.hybrid_advisor:
+            messagebox.showwarning("提示", "混合分析模式未启用")
+            return
+        
+        try:
+            status = self.hybrid_advisor.get_system_status()
+            
+            # 创建状态窗口
+            status_window = tk.Toplevel(self.root)
+            status_window.title("📊 系统状态")
+            status_window.geometry("600x500")
+            status_window.resizable(True, True)
+            status_window.transient(self.root)
+            status_window.grab_set()
+            
+            # 居中显示
+            status_window.update_idletasks()
+            x = (status_window.winfo_screenwidth() // 2) - (600 // 2)
+            y = (status_window.winfo_screenheight() // 2) - (500 // 2)
+            status_window.geometry(f"600x500+{x}+{y}")
+            
+            main_frame = ttk.Frame(status_window)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+            
+            # 标题
+            title_label = ttk.Label(main_frame, text="系统运行状态", 
+                                   font=('Microsoft YaHei', 16, 'bold'))
+            title_label.pack(pady=(0, 20))
+            
+            # 状态文本
+            status_text = tk.Text(main_frame, wrap=tk.WORD, 
+                                 font=('Microsoft YaHei', 10),
+                                 state=tk.NORMAL)
+            status_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, 
+                                           command=status_text.yview)
+            status_text.configure(yscrollcommand=status_scrollbar.set)
+            
+            status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            status_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # 插入状态信息
+            status_content = f"""🤖 机器学习模型状态
+{'='*50}
+模型状态: {status.get('ml_model_status', 'Unknown')}
+训练数据量: {status.get('training_data_count', 0)}
+模型准确率: {status.get('model_accuracy', 'N/A')}
+最后训练时间: {status.get('last_training_time', 'Never')}
+
+📊 反馈统计
+{'='*50}
+总反馈数: {status.get('total_feedback', 0)}
+平均评分: {status.get('average_rating', 'N/A')}
+最新反馈时间: {status.get('latest_feedback_time', 'Never')}
+
+⚙️ 系统配置
+{'='*50}
+ML权重: {self.ml_weight_var.get():.1f}
+ML模式: {'启用' if self.ml_enabled_var.get() else '禁用'}
+模型目录: {status.get('model_directory', 'N/A')}
+数据库路径: {status.get('database_path', 'N/A')}
+
+📈 性能指标
+{'='*50}
+分析会话数: {status.get('analysis_sessions', 0)}
+平均分析时间: {status.get('average_analysis_time', 'N/A')}
+系统运行时间: {status.get('system_uptime', 'N/A')}
+"""
+            
+            status_text.insert(tk.END, status_content)
+            status_text.config(state=tk.DISABLED)
+            
+            # 关闭按钮
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack(fill=tk.X, pady=(20, 0))
+            
+            ttk.Button(button_frame, text="关闭", 
+                      command=status_window.destroy).pack(side=tk.RIGHT)
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"获取系统状态失败: {str(e)}")
